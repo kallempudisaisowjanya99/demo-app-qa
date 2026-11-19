@@ -35,3 +35,8 @@ venv/
 
 # MyPy
 .mypy_cache/
+
+# Playwright E2E
+code/demo-app-ui/e2e/.env
+code/demo-app-ui/playwright-report/
+code/demo-app-ui/test-results/
