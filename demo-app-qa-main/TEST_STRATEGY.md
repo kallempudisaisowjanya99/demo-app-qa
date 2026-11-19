@@ -10,8 +10,8 @@ Give confidence that a claimant can submit and track claims, an admin can proces
 
 | # | Risk | Why it ranks here | Primary coverage |
 |---|------|-------------------|------------------|
-| R1 | **Authorization / data isolation**: a claimant reads or edits another user's claim, or a non-admin calls `/api/admin/*` or changes status | Security and privacy breach, regulatory impact. Roles are enforced in the BFF (JWT/cookie, CSRF) and again in the Claims Service use cases. | BFF RBAC integration, API tests per role, Playwright role journeys |
-| R2 | **Claim lifecycle integrity**: illegal status transitions, lost updates, wrong audit data | Core business rule: `SUBMITTED→UNDER_REVIEW/REJECTED`, `UNDER_REVIEW→APPROVED/REJECTED/SUBMITTED`, `APPROVED/REJECTED→CLOSED`, `CLOSED` terminal (`ClaimStatus.canTransitionTo`). | Unit (full transition matrix), repository integration, API |
+| R1 | **Authorization / data isolation**: a claimant sees or edits another user's claim, admin data reaches a claimant, an admin can't see all claims, or a non-admin changes status | Security and privacy breach, regulatory impact. Roles are enforced in the BFF (JWT/cookie, CSRF) and again in the Claims Service use cases. Tested with two claimants and two admins, so one user's data is checked against another's. | BFF RBAC integration, API-VIS-01/02/03, API-ADM-03, UI-VIS-01/02/03 |
+| R2 | **Claim lifecycle integrity**: illegal status transitions, an admin's decision not reaching the claim's owner, a decision changing the wrong claim | Core business rule: `SUBMITTED→UNDER_REVIEW/REJECTED`, `UNDER_REVIEW→APPROVED/REJECTED/SUBMITTED`, `APPROVED/REJECTED→CLOSED`, `CLOSED` terminal (`ClaimStatus.canTransitionTo`). After an approval or rejection the owner must see the new status. | Unit (full transition matrix), repository integration, API-ADM-01/02, UI-ADM-01/02/03/04 |
 | R3 | **BFF ↔ Claims Service contract drift**: generated DTOs/clients diverge from OpenAPI | Both sides are generated from OpenAPI, and a silent break only shows at runtime. | Pact consumer/provider, schema checks, WireMock stubs in `bff-service/mocks` |
 | R4 | **Event delivery**: status change not pushed to the UI, or pushed twice | Two modes exist (direct Kafka vs Debezium CDC). Running both duplicates notifications, and `app.events.cdc-enabled` defaults differ between code (`true`) and compose (`false`). | Testcontainers Kafka integration, WebSocket tests, one E2E per mode |
 | R5 | Authentication session handling: login, refresh, logout, signup, token expiry | Entry point for every journey. | Unit (exists), integration against Keycloak, E2E |
@@ -49,33 +49,42 @@ Guideline: push every check to the lowest level that can prove it. E2E only cove
 
 ## 5. Key E2E Journeys
 
-1. Claimant logs in, creates a claim, sees it as `SUBMITTED` in their list.
-2. Admin logs in, sees the claim, moves `SUBMITTED→UNDER_REVIEW→APPROVED→CLOSED`; the claimant sees each status update live (WebSocket).
-3. Admin rejects a claim; invalid transitions (e.g. `CLOSED→*`) are refused with a clear message.
-4. Claimant cannot open an admin route or another user's claim (UI redirect and API 403/404).
-5. Session expiry/refresh and logout invalidate access.
-6. Dashboard stats change after a status change; flush-cache works.
+The detailed cases are in [TEST_CASES.md](TEST_CASES.md): 10 UI and 10 API tests, each mixing positive, negative, boundary, data-driven and security checks. The journeys they implement:
+
+1. A claimant raises a claim and sees it as `SUBMITTED` (UI-CLM-01, UI-CLM-02).
+2. An admin approves or rejects it, and the owner sees the new status live, after a refresh and after a re-login (UI-ADM-01/02/03).
+3. Only legal next statuses are offered, and illegal transitions are refused (UI-ADM-04, API-ADM-02).
+4. A claimant sees only their own claims, an admin sees every claimant's claims, and a claimant can't open admin pages or another user's claim (UI-VIS-01/02/03, API-VIS-01/02/03).
+5. A decision changes only the target claim, and its event reaches only the owner (API-ADM-01, API-ADM-04).
+6. Login is covered by one smoke test (UI-AUTH-01). Deeper session testing is lower priority.
+
+Dashboard stats and flush-cache (R6) are covered by lower-level tests for now and can be added as a later API case.
 
 ## 6. Requirements Traceability
 
-Each test carries a tag (`@R1`, `@R2`, …, or a requirement ID such as `CLM-STATUS-03`) in its name or annotation. The matrix below is maintained in this file and checked at review time.
+Each automated test carries its case ID from TEST_CASES.md in its title (for example `UI-ADM-01`). The matrix below maps requirements to those IDs and is checked at review time.
 
-| Requirement | Risk | Unit | Integration | Contract | API | E2E |
-|-------------|------|------|-------------|----------|-----|-----|
-| Create claim (valid and invalid input) | R2 | CreateClaimUseCase | ClaimRepositoryIT | POST /api/claims | 201/400/401/403 | Journey 1 |
-| View own claims only | R1 | ListClaimsUseCase | RbacIT | GET /api/claims | claimant A vs B | Journey 4 |
-| Admin lists all claims | R1 | ListAllClaimsUseCase | RbacIT | GET /api/admin/claims | 200 admin, 403 claimant | Journey 2 |
-| Status transition rules | R2 | UpdateClaimStatusUseCase + full matrix | Postgres IT | PATCH …/status | 400 on illegal | Journeys 2-3 |
-| Status change event reaches UI | R4 | DomainEventListener | Kafka IT | AsyncAPI schema | n/a | Journey 2 (both modes) |
-| Login, refresh, logout, signup | R5 | LoginUseCase etc. | Keycloak IT | n/a | auth endpoints | Journey 5 |
-| Dashboard stats and cache flush | R6 | GetDashboardStats | Redis IT | GET stats, POST flush-cache | admin-only | Journey 6 |
-| CSRF and correlation ID propagation | R1/R5 | filters | RbacIT | headers | missing/invalid token | n/a |
+| Requirement | Risk | Unit | Integration | Contract | API case | UI case |
+|-------------|------|------|-------------|----------|----------|---------|
+| Create claim (valid and invalid input) | R2 | CreateClaimUseCase | ClaimRepositoryIT | POST /api/claims | API-CLM-01, 02, 03 | UI-CLM-01, 02 |
+| User sees only own claims | R1 | ListClaimsUseCase | RbacIT | GET /api/claims | API-VIS-01, 03 | UI-VIS-01, 03 |
+| Admin sees all users' claims | R1 | ListAllClaimsUseCase | RbacIT | GET /api/admin/claims | API-VIS-02 | UI-VIS-02 |
+| Admin approves or rejects; owner sees the result | R2 | UpdateClaimStatusUseCase | Postgres IT | PATCH …/status | API-ADM-01 | UI-ADM-01, 02, 03 |
+| Status transition rules | R2 | full transition matrix | Postgres IT | PATCH …/status (400) | API-ADM-02 | UI-ADM-04 |
+| Only admins can change status; forged requests refused | R1 | UpdateClaimStatusUseCase (non-admin) | RbacIT | 401/403 responses | API-ADM-03 | UI-VIS-03 |
+| Status event reaches only the owner, once | R4 | DomainEventListener | Kafka IT | AsyncAPI schema | API-ADM-04 | UI-ADM-03 |
+| Server sets claim status and owner | R1/R2 | CreateClaimUseCase | – | POST /api/claims | API-CLM-03 | – |
+| Script text in claims is displayed as text | R1 | – | – | – | – | UI-CLM-02 |
+| Login | R5 | LoginUseCase etc. | Keycloak IT | – | – | UI-AUTH-01 |
+| Dashboard stats and cache flush | R6 | GetDashboardStats | Redis IT | GET stats, POST flush-cache | not yet covered | not yet covered |
 
 ## 7. Test Data Strategy
 
-- **Users:** the two seeded Keycloak users (`admin@demo.com`, `claimant@demo.com`) plus tests that create extra users via the API with unique, timestamped emails. Credentials come from environment variables, not hardcoded in specs.
+- **Users (personas):** authorization is tested with different accounts of the same role, not with wrong passwords. `ADMIN_1` and `USER_A` are the seeded users (`admin@demo.com`, `claimant@demo.com`). `USER_B` and `USER_C` are claimants created through signup with unique, timestamped emails. `ADMIN_2` is a second admin created in Keycloak and registered in the Claims Service (`POST /api/users` with the admin role), which still has to be verified because signup only creates claimants. Credentials come from environment variables, not hardcoded in specs.
+- **Standard seed claims:** five claims created through the API before each suite: `A1`, `A2` (USER_A, SUBMITTED), `A3` (USER_A, APPROVED), `B1` (USER_B, SUBMITTED), `B2` (USER_B, REJECTED). Each description contains a unique `<runId>`, so tests don't collide and a leak between users is easy to spot. The exact values are in TEST_CASES.md.
 - **Claims:** each test creates its own claims through the API (not the UI) for setup, so tests are independent and parallel-safe. No test relies on pre-existing rows or ordering.
 - **Status coverage:** helper factories create a claim in any target status by walking the legal transition path.
+- **Each test case lists its own data:** TEST_CASES.md gives the values used (test data) and what must exist beforehand (required test data) for every case.
 - **Isolation:** Testcontainers give a fresh DB per integration suite. E2E runs use a unique prefix per run and clean up their claims in teardown. `stop-infra.sh -v` resets the shared environment.
 - **Contract/mocks:** BFF component tests use the WireMock stubs in `bff-service/mocks/claims-service-stubs`, regenerated when the OpenAPI changes.
 - **Boundary data:** empty, max-length and unicode text, zero or negative amounts, and invalid UUIDs.
@@ -105,8 +114,8 @@ Each test carries a tag (`@R1`, `@R2`, …, or a requirement ID such as `CLM-STA
 |-------|---------|------|------|
 | Pre-commit | local | lint, unit tests for changed module | advisory |
 | PR | every PR | build, Checkstyle/PMD, unit + ArchUnit (both services, UI), Pact consumer tests, Testcontainers integration | **blocking** |
-| Merge to main | push | all of the above, Pact provider verification, docker compose stack up, API tests, Playwright smoke (journeys 1, 2, 4), JaCoCo/Vitest coverage report | **blocking** |
-| Nightly | schedule | full Playwright (Chromium + Firefox), both event modes (CDC off and on), k6 baseline, full status transition matrix | alert on failure |
+| Merge to main | push | all of the above, Pact provider verification, docker compose stack up, the visibility and security cases (UI-VIS-01/03, API-VIS-01/03, API-ADM-03), the approval case UI-ADM-01, JaCoCo/Vitest coverage report | **blocking** |
+| Nightly | schedule | all 10 UI and 10 API cases in Chromium (UI smoke in Firefox), both event modes (CDC off and on, for API-ADM-04 and UI-ADM-03), k6 baseline, full status transition matrix (API-ADM-02) | alert on failure |
 | Pre-release | manual | exploratory charters, regression of open defects | sign-off |
 
 Practices: Playwright traces, screenshots and reports and JUnit XML are kept as artifacts. A failed E2E test is retried once, and a retry that passes is reported as flaky. Test results are published per run.
