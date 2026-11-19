@@ -1,3 +1,6 @@
+# Maven build output (compiled classes, JARs, OpenAPI-generated sources)
+**/target/
+
 # Test outputs
 test-results/
 **/test-results/
