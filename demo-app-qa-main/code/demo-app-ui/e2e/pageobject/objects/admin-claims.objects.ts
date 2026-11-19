@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { shortId } from '../../commons/utils';
+import { shortId } from '../../utils/string.utils';
 
 /** Elements of the admin "Claims Management" page and its confirmation dialog. */
 export class AdminClaimsObjects {

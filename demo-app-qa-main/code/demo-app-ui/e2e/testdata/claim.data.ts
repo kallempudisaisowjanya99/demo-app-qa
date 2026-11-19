@@ -1,5 +1,5 @@
 import type { CreateClaimRequest } from '../commons/api-types';
-import { isoDateFromToday } from '../commons/utils';
+import { isoDateFromToday } from '../utils/date.utils';
 
 /** Default values of a valid claim. Tests override single fields to make it invalid. */
 export const VALID_CLAIM = {

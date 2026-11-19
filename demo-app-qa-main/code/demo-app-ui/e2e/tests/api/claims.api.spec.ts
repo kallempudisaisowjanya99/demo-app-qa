@@ -2,7 +2,8 @@ import { bodyOf, seedClaim } from '../../commons/api-client';
 import { ApiRoute, ClaimLimits, ClaimStatus, HttpStatus } from '../../commons/constants';
 import { expect, test } from '../../fixtures/fixtures';
 import type { ClaimResponse } from '../../commons/api-types';
-import { isoDateFromToday, textOfLength } from '../../commons/utils';
+import { isoDateFromToday } from '../../utils/date.utils';
+import { textOfLength } from '../../utils/string.utils';
 import { buildClaim } from '../../testdata/claim.data';
 
 /**

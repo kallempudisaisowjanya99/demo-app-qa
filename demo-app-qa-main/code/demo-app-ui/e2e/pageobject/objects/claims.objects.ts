@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { shortId } from '../../commons/utils';
+import { shortId } from '../../utils/string.utils';
 
 export type ClaimDetailField = 'Claim ID' | 'Status' | 'Incident Location' | 'Description' | 'Claim Amount';
 

@@ -1,6 +1,8 @@
 import { seedClaim } from '../../commons/api-client';
 import { ClaimLimits, ClaimStatus, STATUS_LABEL, UiRoute } from '../../commons/constants';
-import { formatUiCurrency, isoDateFromToday, textOfLength } from '../../commons/utils';
+import { formatUiCurrency } from '../../utils/currency.utils';
+import { isoDateFromToday } from '../../utils/date.utils';
+import { textOfLength } from '../../utils/string.utils';
 import { env } from '../../env';
 import { expect, test } from '../../fixtures/fixtures';
 import { ClaimsPage } from '../../pageobject/pages/claims.page';
