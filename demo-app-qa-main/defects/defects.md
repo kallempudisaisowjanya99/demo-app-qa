@@ -1,16 +1,25 @@
-# Defects – Claims App
+# Defects – Claims App (Critical and High)
 
-**Tested on:** 19 Nov 2026, local Docker stack. The UI runs at `http://localhost:3001` and the BFF at `http://localhost:8090`.
-**Test accounts:** `claimant@demo.com` (claimant) and `admin@demo.com` (admin).
+**Tested on:** 19 and 20 Nov 2026, local Docker stack.
+**Addresses:**
+
+| Part | Address |
+|---|---|
+| UI | `http://localhost:3001` |
+| BFF | `http://localhost:8090` |
+| Claims Service | `http://localhost:8080` |
+| Keycloak | `http://localhost:8180` |
+
+**Test accounts:** `claimant@demo.com` / `Claimant123!` (claimant) and `admin@demo.com` / `Admin123!` (admin).
+
+This file lists only **Critical** and **High** defects. Medium and Low findings (DEF-01 to DEF-04, DEF-06, DEF-10 to DEF-13) were removed from this list. Their IDs are not reused, so references to them in other documents still point to the same issues.
 
 **Severity scale**
 
 | Severity | Meaning |
 |---|---|
-| Critical | Security or data exposure between users |
+| Critical | Security problem, or one user can see another user's data |
 | High | A main feature is broken or unsafe |
-| Medium | Wrong behaviour that has a workaround, or wrong error codes |
-| Low | Minor, an edge case, or test-only |
 
 The **How found** column means:
 - **Reproduced:** seen in the running app. The screenshot shows the real request and response, or the real screen.
@@ -20,188 +29,45 @@ The **How found** column means:
 
 | ID | Title | Severity | How found |
 |---|---|---|---|
-| [DEF-01](#def-01) | Future incident date returns 500 instead of 400 | Medium | Reproduced |
-| [DEF-02](#def-02) | Illegal status change returns 500 instead of 400 | Medium | Reproduced |
-| [DEF-03](#def-03) | Another user's claim or an unknown claim returns 500 instead of 403/404 | Medium | Reproduced |
-| [DEF-04](#def-04) | Claim amount with 3 decimals is accepted and then silently changed | Medium | Reproduced |
-| [DEF-05](#def-05) | Valid logins at the same time are refused with 401 | High | Reproduced |
-| [DEF-06](#def-06) | Admin claims list has no pagination (5,630 claims in one response) | Medium | Reproduced |
-| [DEF-07](#def-07) | Claim status changes don't reach users in real time | High | Reproduced |
 | [DEF-08](#def-08) | Shared API client swaps bearer tokens between concurrent requests | Critical | Code review |
-| [DEF-09](#def-09) | User endpoints have no admin check; a user ID can be re-pointed | High | Code review |
-| [DEF-10](#def-10) | Access token valid for 24 hours, cookie only 5 minutes | Medium | Code review |
-| [DEF-11](#def-11) | Future-date check uses the server's UTC date | Low | Code review |
-| [DEF-12](#def-12) | UI Docker image fails on a fresh clone (API client never generated) | Medium | Code review |
-| [DEF-13](#def-13) | Test CDC event uses field `id`, but the BFF reads `claim_id` | Low | Code review |
+| [DEF-14](#def-14) | Claimants can call admin-only Claims Service endpoints: all claims, all users, dashboard | Critical | Reproduced |
+| [DEF-05](#def-05) | Valid logins at the same time are refused with 401 | High | Reproduced |
+| [DEF-07](#def-07) | Claim status changes don't reach users in real time | High | Reproduced |
+| [DEF-09](#def-09) | User endpoints have no admin check; a user ID can be re-pointed | High | Code review, read access reproduced |
+| [DEF-15](#def-15) | Actuator endpoints are public; anyone can change the log level | High | Reproduced |
+| [DEF-16](#def-16) | Logout fails with 403 and the user stays logged in | High | Reproduced |
+| [DEF-17](#def-17) | Sign-up always fails with 500 | High | Reproduced |
+| [DEF-18](#def-18) | Complete bearer tokens are written to the Claims Service log | High | Reproduced |
 
 ---
 
-<a id="def-01"></a>
-## DEF-01 – Future incident date returns 500 instead of 400
+## Before you start (needed for the curl steps)
 
-| Field | Value |
-|---|---|
-| Severity | Medium |
-| Area | BFF API – `POST /api/claims` |
-| Automated test | API-04 in `e2e/tests/api/claims.api.spec.ts` (fails because of this defect) |
+Run these in **Git Bash** from the repo root.
 
-**Steps**
-1. Log in as `claimant@demo.com`.
-2. Send `POST /api/claims` with `incidentDate` set to 7 days from today. All other fields are valid.
+**1. Start the stack and wait until all three services answer:**
+```bash
+./start-infra.sh      # PostgreSQL, Kafka, Redis, Keycloak
+./start-app.sh        # Claims Service, BFF, UI
+```
 
-**Expected:** HTTP 400 with "Incident date cannot be in the future".
-**Actual:** HTTP 500 Internal Server Error, with no message.
+**2. Log in once in the UI** as `claimant@demo.com` and as `admin@demo.com`. This creates both users in the Claims Service.
 
-**Cause:** the Claims Service returns 400 correctly. The BFF then wraps every downstream error in an `IllegalStateException`, which becomes a 500. See [ClaimsServiceAdapter.java:150-151](../code/bff-service/src/main/java/com/example/demo/adapter/out/claimsservice/ClaimsServiceAdapter.java#L150-L151).
-The UI blocks future dates itself, so the problem shows only through the API.
+**3. Set up these helper variables** in the same terminal. Most steps below use them.
+```bash
+KC=http://localhost:8180/realms/demo-app/protocol/openid-connect/token
+BFF=http://localhost:8090
+CS=http://localhost:8080
 
-![DEF-01](screenshots/DEF-01.png)
-
----
-
-<a id="def-02"></a>
-## DEF-02 – Illegal status change returns 500 instead of 400
-
-| Field | Value |
-|---|---|
-| Severity | Medium |
-| Area | Admin API – `PATCH /api/admin/claims/{claimId}/status` |
-| Automated test | API-09 (checks that the change is refused, and notes this defect) |
-
-**Steps**
-1. As the claimant, create a claim. Its status is SUBMITTED.
-2. As the admin, send `PATCH /api/admin/claims/{claimId}/status` with `{ "status": "APPROVED" }`.
-
-**Expected:** HTTP 400 "Invalid status transition", as documented in `bff-api.yml`. Only UNDER_REVIEW and REJECTED are allowed after SUBMITTED.
-**Actual:** HTTP 500. The claim correctly stays SUBMITTED, so only the response code is wrong.
-
-**Cause:** the Claims Service has no exception handler for `InvalidStatusTransitionException` ([Claim.java:121-123](../code/claims-service/src/main/java/com/example/demo/domain/claim/Claim.java#L121-L123)), so it returns 500, and the BFF passes the 500 on.
-
-![DEF-02](screenshots/DEF-02.png)
-
----
-
-<a id="def-03"></a>
-## DEF-03 – Another user's claim or an unknown claim returns 500 instead of 403/404
-
-| Field | Value |
-|---|---|
-| Severity | Medium |
-| Area | BFF API – `GET /api/claims/{claimId}` |
-
-**Steps**
-1. As the admin, create a claim. From the claimant's point of view, this is someone else's claim.
-2. As the claimant, send `GET /api/claims/{that claimId}`.
-3. As the claimant, send `GET /api/claims/00000000-0000-4000-8000-000000000000`, an ID that doesn't exist.
-
-**Expected:** step 2 returns **403** "claim belongs to different user", and step 3 returns **404** "Claim not found", as documented in `bff-api.yml`.
-**Actual:** both return **500**. No data leaks, but a client can't tell "forbidden" from "not found" from "server crashed".
-
-**Cause:** the BFF recognises 403 and 404 but re-throws them as `IllegalStateException`. See [ClaimsServiceAdapter.java:177-181](../code/bff-service/src/main/java/com/example/demo/adapter/out/claimsservice/ClaimsServiceAdapter.java#L177-L181).
-
-![DEF-03](screenshots/DEF-03.png)
-
----
-
-<a id="def-04"></a>
-## DEF-04 – Claim amount with 3 decimals is accepted and then silently changed
-
-| Field | Value |
-|---|---|
-| Severity | Medium |
-| Area | Claims API and database – `claimAmount` |
-
-**Steps**
-1. As the claimant, send `POST /api/claims` with `claimAmount: 10.005`.
-2. Read the claim back with `GET /api/claims/{claimId}`.
-
-**Expected:** HTTP 400, because money may have at most 2 decimals. At the very least, the stored amount must equal the amount submitted.
-**Actual:**
-- The create returns **201** and says `claimAmount: 10.005`.
-- Reading the claim back shows **10.01**.
-
-The claimant was told one amount, and a different amount was stored.
-
-**Cause:**
-- Validation only checks `minimum: 0.01`. There is no rule for the number of decimals.
-- The database column is `DECIMAL(12,2)`, so the value is rounded silently when it is saved ([002-create-claims-table.yaml:37-38](../code/claims-service/src/main/resources/db/changelog/changes/002-create-claims-table.yaml)).
-- The UI also allows 3 decimals (`step="0.01"` only).
-
-![DEF-04](screenshots/DEF-04.png)
-
----
-
-<a id="def-05"></a>
-## DEF-05 – Valid logins at the same time are refused with 401
-
-| Field | Value |
-|---|---|
-| Severity | High |
-| Area | BFF – `POST /api/auth/login` |
-
-**Steps**
-1. Send 10 `POST /api/auth/login` requests at the same moment with **correct** credentials: 5 for the claimant and 5 for the admin.
-
-**Expected:** all 10 return HTTP 200.
-**Actual:** only 2 of 10 succeed. The other 8 return **401 "Invalid email or password"**, even though the password is correct.
-
-**Impact:** at busy times, real users are told their password is wrong. The automated tests needed a retry around login to work around this.
-**Cause:** not confirmed. The likely area is shared state in the BFF login path (see DEF-08 for a similar pattern).
-
-![DEF-05](screenshots/DEF-05.png)
-
----
-
-<a id="def-06"></a>
-## DEF-06 – Admin claims list has no pagination
-
-| Field | Value |
-|---|---|
-| Severity | Medium |
-| Area | Admin API `GET /api/admin/claims` and the admin "Claims Management" page |
-
-**Steps**
-1. As the admin, send `GET /api/admin/claims`.
-2. Open the **Claims** page in the UI as the admin.
-
-**Expected:** a paginated list (for example 20–50 claims per page) with page controls.
-**Actual:**
-- **API:** all **5,630 claims** come back in one 2.14 MB response. The endpoint has no page or size parameter.
-- **UI:** the page took **about 11 seconds** to render every row, and it has no page controls.
-
-The list will keep growing.
-
-**Cause:** `ListAllClaimsUseCase` calls `claimRepository.findAll()`. `AdminClaimsController.java:151` also looks up the user once per claim, which is the N+1 query problem.
-
-![DEF-06 API](screenshots/DEF-06-api.png)
-![DEF-06 UI](screenshots/DEF-06-ui.png)
-
----
-
-<a id="def-07"></a>
-## DEF-07 – Claim status changes don't reach users in real time
-
-| Field | Value |
-|---|---|
-| Severity | High |
-| Area | Real-time events: Claims Service → Kafka → BFF → UI |
-
-**Steps**
-1. Start the app the normal way (`./start-infra.sh`, then `./start-app.sh`).
-2. Log in as the claimant and open **My Claims**. The header shows a green **Live** indicator.
-3. As the admin, change one of the claimant's claims from Submitted to **Under Review**.
-4. Wait 15 seconds without reloading the claimant's page.
-
-**Expected:** the claimant's page updates to "Under Review" within a few seconds.
-**Actual:** the page still shows **Submitted** while the header still says **Live**. The new status appears only after a manual reload.
-
-**Cause:**
-- `docker-compose.apps.yml` sets `APP_EVENTS_CDC_ENABLED: "true"`, but the README says the default is `false`.
-- With the flag on, the Claims Service stops publishing events directly and relies on Debezium. Debezium is not part of the normal startup, and the `demo-debezium` container had exited, so no events are sent at all.
-
-![DEF-07 before reload](screenshots/DEF-07-ui-before-reload.png)
-![DEF-07 after reload](screenshots/DEF-07-ui-after-reload.png)
-![DEF-07 code](screenshots/DEF-07-code.png)
+token() {  # usage: token <email> <password>
+  curl -s $KC -d grant_type=password -d client_id=demo-app-ui \
+       -d username="$1" -d password="$2" |
+  node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).access_token))"
+}
+CLAIMANT_TOKEN=$(token claimant@demo.com 'Claimant123!')
+ADMIN_TOKEN=$(token admin@demo.com 'Admin123!')
+echo ${CLAIMANT_TOKEN:0:20} ${ADMIN_TOKEN:0:20}     # both lines must print text
+```
 
 ---
 
@@ -212,22 +78,146 @@ The list will keep growing.
 |---|---|
 | Severity | Critical |
 | Area | BFF – `AdminController`, `ClaimsServiceAdapter` |
-| How found | Code review (a race condition, so it can't be shown with one request) |
+| How found | Code review. It is a race condition, so one request can't show it. |
 
 **Steps to reproduce**
-1. Send admin and claimant requests to the BFF at the same moment, for example in a load test.
-2. Check, in the Claims Service logs or with a debugger, which token each downstream call carries.
+1. Log in through the BFF as both users and save their cookies:
+   ```bash
+   curl -s -c jar_claimant.txt -H 'Content-Type: application/json' \
+     -d '{"email":"claimant@demo.com","password":"Claimant123!"}' $BFF/api/auth/login -o /dev/null
+   curl -s -c jar_admin.txt -H 'Content-Type: application/json' \
+     -d '{"email":"admin@demo.com","password":"Admin123!"}' $BFF/api/auth/login -o /dev/null
+   ```
+2. Switch on DEBUG logging so the Claims Service logs which token each call carries (see DEF-15):
+   ```bash
+   curl -s -X POST $CS/actuator/loggers/com.example.demo -H 'Content-Type: application/json' -d '{"configuredLevel":"DEBUG"}'
+   ```
+3. Send 50 admin requests and 50 claimant requests at the same moment:
+   ```bash
+   for i in $(seq 1 50); do
+     curl -s -b jar_admin.txt    -o /dev/null -w "admin %{http_code}\n"    $BFF/api/admin/claims &
+     curl -s -b jar_claimant.txt -o /dev/null -w "claimant %{http_code}\n" $BFF/api/claims &
+   done | sort | uniq -c; wait
+   ```
+4. Check `docker logs demo-claims-service` to see which token each downstream call carried.
+5. Put the log level back: same call as step 2 with `{"configuredLevel":null}`.
 
-**Expected:** each downstream call carries the token of the user who made that request.
+**Expected:** each downstream call carries the token of the user who made that request, and all 100 responses are 200.
 **Actual (from the code):**
-- `AdminController` is a singleton that holds **one** `ApiClient`.
-- On every request, it calls `apiClient.setBearerToken(...)` with either the current user's token or the service-account token.
-- Concurrent requests overwrite each other's token, so a request can go out with **another user's or the service account's identity**.
-- The same pattern is in `ClaimsServiceAdapter.java:215-224`.
+- `AdminController` is a singleton that holds **one** shared `ApiClient`.
+- On every request it calls `apiClient.setBearerToken(...)` with the current user's token or the service-account token.
+- Concurrent requests overwrite each other's token. A request can go out with **another user's or the service account's identity**.
+- `ClaimsServiceAdapter.java:215-224` uses the same pattern.
+
+Because this is a race condition, it may not appear on every run. Run step 3 several times.
 
 Files: [AdminController.java:36](../code/bff-service/src/main/java/com/example/demo/adapter/in/web/AdminController.java#L36), [:150](../code/bff-service/src/main/java/com/example/demo/adapter/in/web/AdminController.java#L150), [:157](../code/bff-service/src/main/java/com/example/demo/adapter/in/web/AdminController.java#L157)
 
 ![DEF-08](screenshots/DEF-08.png)
+
+---
+
+<a id="def-14"></a>
+## DEF-14 – Claimants can call admin-only Claims Service endpoints
+
+| Field | Value |
+|---|---|
+| Severity | Critical |
+| Area | Claims Service – `GET /api/admin/claims`, `GET /api/admin/dashboard/stats`, `GET /api/users` |
+| How found | Reproduced on 20 Nov 2026 |
+
+**Steps to reproduce**
+1. Do the "Before you start" setup to get `CLAIMANT_TOKEN`. This token holds only the realm role `claimant`.
+2. Call the three admin endpoints on the Claims Service with the claimant token:
+   ```bash
+   for p in /api/admin/claims /api/admin/dashboard/stats /api/users; do
+     curl -s -o /dev/null -w "%{http_code} $p\n" -H "Authorization: Bearer $CLAIMANT_TOKEN" $CS$p
+   done
+   ```
+3. See what comes back:
+   ```bash
+   curl -s -H "Authorization: Bearer $CLAIMANT_TOKEN" $CS/api/users
+   ```
+4. For comparison, the same call through the BFF:
+   ```bash
+   curl -s -c jar.txt -H 'Content-Type: application/json' \
+     -d '{"email":"claimant@demo.com","password":"Claimant123!"}' $BFF/api/auth/login -o /dev/null
+   curl -s -b jar.txt -o /dev/null -w "%{http_code}\n" $BFF/api/admin/claims
+   ```
+
+**Expected:** steps 2 and 3 return **403 Forbidden**. These methods are marked `@PreAuthorize("hasRole('ADMIN')")`.
+**Actual:**
+- All three return **200**.
+- `/api/admin/claims` returned **all 5,647 claims of 4 different users**, with each owner's name and email.
+- `/api/users` returned every user's email, name and role.
+- `/api/admin/dashboard/stats` returned the system-wide totals.
+- The BFF (step 4) correctly returns 403. The Claims Service port 8080 is published on the host, though, so anyone with a claimant login can skip the BFF.
+
+**Cause:** not confirmed. The `@PreAuthorize` annotations are in the code ([AdminClaimsController.java:46, 62](../code/claims-service/src/main/java/com/example/demo/adapter/in/web/AdminClaimsController.java#L46), [DashboardController.java:36, 64](../code/claims-service/src/main/java/com/example/demo/adapter/in/web/DashboardController.java#L36), [UserController.java:41](../code/claims-service/src/main/java/com/example/demo/adapter/in/web/UserController.java#L41)), and `@EnableMethodSecurity` is on `SecurityConfig`. They are still not enforced at runtime. The URL rules in [SecurityConfig.java:61-64](../code/claims-service/src/main/java/com/example/demo/config/SecurityConfig.java#L61-L64) only require "authenticated" for `/api/**`, so nothing else stops the call.
+
+In the screenshot, emails of users other than the demo accounts are masked.
+
+![DEF-14](screenshots/DEF-14.png)
+
+---
+
+<a id="def-05"></a>
+## DEF-05 – Valid logins at the same time are refused with 401
+
+| Field | Value |
+|---|---|
+| Severity | High |
+| Area | BFF – `POST /api/auth/login` |
+| How found | Reproduced on 19 Nov 2026 |
+
+**Steps to reproduce**
+1. Send 10 logins with **correct** passwords at the same moment, 5 for each account:
+   ```bash
+   for i in $(seq 1 5); do
+     curl -s -H 'Content-Type: application/json' -d '{"email":"claimant@demo.com","password":"Claimant123!"}' \
+       $BFF/api/auth/login -o /dev/null -w "claimant %{http_code}\n" &
+     curl -s -H 'Content-Type: application/json' -d '{"email":"admin@demo.com","password":"Admin123!"}' \
+       $BFF/api/auth/login -o /dev/null -w "admin %{http_code}\n" &
+   done | sort | uniq -c; wait
+   ```
+
+**Expected:** all 10 return HTTP 200.
+**Actual:** only 2 of 10 succeeded. The other 8 returned **401 "Invalid email or password"**, although every password was correct.
+
+**Impact:** at busy times, real users are told their password is wrong. The automated tests needed a retry around login to work around this.
+**Cause:** not confirmed. The likely area is shared state in the BFF login path (see DEF-08 for a similar pattern).
+
+![DEF-05](screenshots/DEF-05.png)
+
+---
+
+<a id="def-07"></a>
+## DEF-07 – Claim status changes don't reach users in real time
+
+| Field | Value |
+|---|---|
+| Severity | High |
+| Area | Real-time events: Claims Service → Kafka → BFF → UI |
+| How found | Reproduced on 19 Nov 2026 |
+
+**Steps to reproduce**
+1. Start the app the normal way (`./start-infra.sh`, then `./start-app.sh`).
+2. **Browser 1:** log in as `claimant@demo.com` and open **My Claims**. The header shows a green **Live** indicator. Note one claim with status **Submitted**.
+3. **Browser 2** (a private window): log in as `admin@demo.com`, open **Claims**, and change that claim to **Under Review**.
+4. Watch browser 1 for 15 seconds **without reloading**.
+5. Reload browser 1.
+
+**Expected:** in step 4, the claim changes to "Under Review" within a few seconds.
+**Actual:** in step 4, the claim still shows **Submitted** while the header still says **Live**. The new status appears only after the reload in step 5.
+
+**Cause:**
+- `docker-compose.apps.yml` sets `APP_EVENTS_CDC_ENABLED: "true"`, but the README says the default is `false`.
+- With the flag on, the Claims Service stops publishing events directly and relies on Debezium.
+- Debezium is not part of the normal startup, and the `demo-debezium` container had exited, so no events are sent at all.
+
+![DEF-07 before reload](screenshots/DEF-07-ui-before-reload.png)
+![DEF-07 after reload](screenshots/DEF-07-ui-after-reload.png)
+![DEF-07 code](screenshots/DEF-07-code.png)
 
 ---
 
@@ -237,125 +227,211 @@ Files: [AdminController.java:36](../code/bff-service/src/main/java/com/example/d
 | Field | Value |
 |---|---|
 | Severity | High |
-| Area | Claims Service – `POST /api/users` and `GET /api/users/{id}` |
-| How found | Code review |
+| Area | Claims Service – `GET /api/users/{id}` and `POST /api/users` |
+| How found | Code review. The read access was reproduced on 20 Nov 2026. |
 
-**Steps to reproduce**
-1. Get a valid token for a normal (non-admin) user.
-2. Call `GET /api/users/{any user id}` on the Claims Service.
-3. Call `POST /api/users` with an **existing** user's email and a new `userId`.
+**Steps to reproduce: read another user's record**
+1. Do the "Before you start" setup.
+2. Get the admin's user ID from their token:
+   ```bash
+   ADMIN_ID=$(node -e "const p='$ADMIN_TOKEN'.split('.')[1];console.log(JSON.parse(Buffer.from(p,'base64url')).sub)")
+   ```
+3. Read the admin's record with the **claimant's** token:
+   ```bash
+   curl -s $CS/api/users/$ADMIN_ID -H "Authorization: Bearer $CLAIMANT_TOKEN" -w "\nHTTP %{http_code}\n"
+   ```
 
-**Expected:** both calls are refused with 403, because only admins and the BFF service account may manage users.
+**Expected:** HTTP 403. A claimant may read only their own record.
+**Actual:** HTTP **200** with the admin's email, name and role.
+
+**Steps to reproduce: re-point a user ID** (this changes data, so use a throwaway user)
+1. Create a throwaway user in Keycloak and log in once in the UI, so it exists in the Claims Service.
+2. With any valid token, call `POST $CS/api/users` with that user's **email** and a **new** `userId`.
+
+**Expected:** HTTP 403 for a normal user, or 409 "user exists".
 **Actual (from the code):**
-- `listAllUsers` is guarded by `@PreAuthorize("hasRole('ADMIN')")`. **`createUser` and `getUser` are not**, so any logged-in user can read any user.
-- If the email already exists with a different ID, the code **changes that user's ID** to the one in the request (`updateUserId`, line 67). That gives control of another user's record and claims.
+- `createUser` and `getUser` have **no** `@PreAuthorize` check.
+- If the email already exists with a different ID, the code **changes that user's ID** to the one in the request (`updateUserId`, line 67).
+- Claims follow the new ID (the foreign key is `ON UPDATE CASCADE`), so the caller can take over another user's record and claims.
+- Logging the real user in again through the BFF moves the ID back.
 
 File: [UserController.java:40-70, 96-98](../code/claims-service/src/main/java/com/example/demo/adapter/in/web/UserController.java#L40-L70)
 
-![DEF-09](screenshots/DEF-09.png)
+![DEF-09 reproduced](screenshots/DEF-09-repro.png)
+![DEF-09 code](screenshots/DEF-09.png)
 
 ---
 
-<a id="def-10"></a>
-## DEF-10 – Access token valid for 24 hours, cookie only 5 minutes
+<a id="def-15"></a>
+## DEF-15 – Actuator endpoints are public; anyone can change the log level
 
 | Field | Value |
 |---|---|
-| Severity | Medium |
-| Area | Keycloak realm configuration and BFF cookies |
-| How found | Code review |
+| Severity | High |
+| Area | Claims Service and BFF – `/actuator/**` |
+| How found | Reproduced on 20 Nov 2026 |
 
-**Steps to reproduce**
-1. Log in and copy the `access_token` cookie value.
-2. Wait more than 5 minutes. The browser drops the cookie.
-3. Call the API with the copied token in an `Authorization: Bearer` header.
+**Steps to reproduce** (no login and no token needed)
+1. List the actuator endpoints of both services:
+   ```bash
+   curl -s -w "\nHTTP %{http_code}\n" $CS/actuator
+   curl -s -w "\nHTTP %{http_code}\n" $BFF/actuator
+   ```
+2. Read the full route map of the BFF:
+   ```bash
+   curl -s -o /dev/null -w "HTTP %{http_code}, %{size_download} bytes\n" $BFF/actuator/mappings
+   ```
+3. Change the Claims Service log level to DEBUG, then read it back:
+   ```bash
+   curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST $CS/actuator/loggers/com.example.demo \
+     -H 'Content-Type: application/json' -d '{"configuredLevel":"DEBUG"}'
+   curl -s $CS/actuator/loggers/com.example.demo
+   ```
+4. Put it back:
+   ```bash
+   curl -s -X POST $CS/actuator/loggers/com.example.demo -H 'Content-Type: application/json' -d '{"configuredLevel":null}'
+   ```
 
-**Expected:** the token lifetime matches the cookie (about 5 minutes), so a leaked token expires quickly.
-**Actual (from the config):**
-- Keycloak `accessTokenLifespan` is **86,400 s (24 h)**.
-- The BFF's `access_token` cookie lasts **5 minutes**.
-- A copied or leaked token stays valid for 24 hours, even after the session idle timeout (30 min).
+**Expected:** 401 for everything except `/actuator/health` (and possibly `/actuator/info`).
+**Actual:**
+- Step 1: **200** on both services. They expose `beans`, `configprops`, `env`, `loggers`, `threaddump`, `mappings`, `scheduledtasks`, `prometheus`, `liquibase`, `refresh` and more.
+- Step 2: **200**, with about 50 KB describing every controller and path.
+- Step 3: **204**, and the level reads back as `DEBUG`. Anyone on the network can change runtime settings, and DEBUG turns on token logging (DEF-18).
 
-Files: [demo-app-realm.json:11-13](../docker/compose/keycloak/demo-app-realm.json), [AuthController.java:33-34](../code/bff-service/src/main/java/com/example/demo/adapter/in/web/AuthController.java#L33-L34)
+**Checked and not exposed:** `/actuator/env` masks every value as `******`, and `/actuator/heapdump` returns 404.
 
-![DEF-10](screenshots/DEF-10.png)
+**Cause:**
+- Both `application.yml` files expose every endpoint (`management.endpoints.web.exposure.include: '*'`): [claims-service line 43](../code/claims-service/src/main/resources/application.yml#L43), [bff-service line 32](../code/bff-service/src/main/resources/application.yml#L32).
+- The Claims Service permits `/actuator/**` without login ([SecurityConfig.java:62](../code/claims-service/src/main/java/com/example/demo/config/SecurityConfig.java#L62)).
+- The BFF ignores CSRF on `/actuator/**`.
+
+![DEF-15](screenshots/DEF-15.png)
 
 ---
 
-<a id="def-11"></a>
-## DEF-11 – Future-date check uses the server's UTC date
+<a id="def-16"></a>
+## DEF-16 – Logout fails with 403 and the user stays logged in
 
 | Field | Value |
 |---|---|
-| Severity | Low |
-| Area | Claims Service validation and the UI wizard step 1 |
-| How found | Code review |
+| Severity | High |
+| Area | UI header Logout button → BFF `POST /api/auth/logout` |
+| How found | Reproduced on 20 Nov 2026 |
 
-**Steps to reproduce**
-1. Set the computer's time zone to India (UTC+5:30).
-2. Between 00:00 and 05:30 local time, submit a claim with **today's local date** as the incident date.
+**Steps to reproduce: in the browser**
+1. Open `http://localhost:3001/login` and log in as `claimant@demo.com`.
+2. Open DevTools (F12) → **Network**.
+3. Click **Logout** in the header. The app shows the login page.
+4. In the Network tab, look at `POST /api/auth/logout`.
+5. Type `http://localhost:3001/claims` in the address bar and press Enter.
 
-**Expected:** accepted. The incident happened today, local time.
-**Actual (from the code):**
-- The server compares the date with `LocalDate.now()` in the container, which runs on UTC with no time zone set. There it is still yesterday, so "today" is rejected as a future date (and returned as 500, see DEF-01).
-- Users west of UTC can submit "tomorrow".
-- The UI uses `new Date().toISOString()`, which is also the UTC date.
+**Expected:** in step 4, logout returns 200/204. In step 5, the app sends you back to the login page.
+**Actual:** in step 4, logout returns **403 Forbidden**. In step 5, **My Claims opens** with all the claimant's claims: the session is still active. Only the UI's own state was cleared.
 
-File: [Claim.java:81-83](../code/claims-service/src/main/java/com/example/demo/domain/claim/Claim.java#L81-L83)
+**Steps to reproduce: with curl**
+```bash
+curl -s -c jar.txt -b jar.txt -H 'Content-Type: application/json' \
+  -d '{"email":"claimant@demo.com","password":"Claimant123!"}' $BFF/api/auth/login -o /dev/null -w "login %{http_code}\n"
+curl -s -c jar.txt -b jar.txt -X POST $BFF/api/auth/logout -w "\nlogout %{http_code}\n"
+curl -s -b jar.txt $BFF/api/claims -o /dev/null -w "claims after logout %{http_code}\n"
+```
+**Expected:** `login 200`, `logout 200`, `claims after logout 401`.
+**Actual:** `login 200`, `logout 403`, `claims after logout 200`.
 
-![DEF-11](screenshots/DEF-11.png)
+**Impact:** on a shared computer, the next person can open the app as the previous user.
+
+**Cause:**
+- The BFF requires a CSRF token on every POST except `signup`, `login`, `refresh`, `/api/ws/**` and `/actuator/**`. Logout is not on that list.
+- The UI's logout `fetch` sends no `X-XSRF-TOKEN` header ([app-header.tsx:19-22](../code/demo-app-ui/src/components/layout/app-header.tsx#L19-L22)).
+- The UI ignores the failed response and goes to `/login` anyway, so the user believes they have logged out.
+
+![DEF-16 UI](screenshots/DEF-16-ui.png)
+![DEF-16 API](screenshots/DEF-16-api.png)
 
 ---
 
-<a id="def-12"></a>
-## DEF-12 – UI Docker image fails on a fresh clone
+<a id="def-17"></a>
+## DEF-17 – Sign-up always fails with 500
 
 | Field | Value |
 |---|---|
-| Severity | Medium |
-| Area | `code/demo-app-ui/Dockerfile` (setup) |
-| How found | Code review, plus the build error seen during this test session |
+| Severity | High |
+| Area | BFF – `POST /api/auth/signup` (and the UI sign-up page) |
+| How found | Reproduced on 20 Nov 2026 |
 
 **Steps to reproduce**
-1. Clone the repo fresh. `src/lib/api/generated/` is in `.gitignore`, so it doesn't exist.
-2. Run `./start-app.sh` and open `http://localhost:3001`.
+1. Sign up a new user. Use a new email each time:
+   ```bash
+   curl -s -H 'Content-Type: application/json' \
+     -d '{"email":"qa.signup.001@demo.com","password":"Secret123!","name":"QA Signup"}' \
+     $BFF/api/auth/signup -w "\nHTTP %{http_code}\n"
+   ```
+2. Sign up with an email that already exists:
+   ```bash
+   curl -s -H 'Content-Type: application/json' \
+     -d '{"email":"claimant@demo.com","password":"Secret123!","name":"Dup"}' \
+     $BFF/api/auth/signup -w "\nHTTP %{http_code}\n"
+   ```
+3. Check the BFF log:
+   ```bash
+   docker logs demo-bff-service --since 2m 2>&1 | grep -i "NotAuthorized"
+   ```
 
-**Expected:** the login page loads.
-**Actual:** the build fails with **"Module not found: Can't resolve './generated'"**. The Dockerfile runs `npm ci` and `next dev` but never `npm run generate:api`. It works only if someone has already generated the client on the host.
-**Workaround:** run `npm run generate:api` in `code/demo-app-ui`, then rebuild the `ui` container.
+**Expected:**
+- Step 1: HTTP **201** with the new user.
+- Step 2: HTTP **409** "Email already exists", as documented in `bff-api.yml`.
 
-![DEF-12](screenshots/DEF-12.png)
+**Actual:**
+- Steps 1 and 2 both return **500 Internal Server Error**. No user is created.
+- Step 3 shows `jakarta.ws.rs.NotAuthorizedException: HTTP 401 Unauthorized`. Keycloak refuses the BFF's own admin login.
+
+**Cause:**
+- The BFF logs in to the Keycloak admin API with `${KEYCLOAK_ADMIN_PASSWORD:admin}` ([application.yml:69](../code/bff-service/src/main/resources/application.yml#L69)), and `docker/compose/.env` sets `KEYCLOAK_ADMIN_PASSWORD=admin`.
+- Keycloak's real admin password is `Admin123!` (`KC_BOOTSTRAP_ADMIN_PASSWORD` in `docker-compose.infra.yml:94`).
+
+![DEF-17](screenshots/DEF-17.png)
 
 ---
 
-<a id="def-13"></a>
-## DEF-13 – Test CDC event uses field `id`, but the BFF reads `claim_id`
+<a id="def-18"></a>
+## DEF-18 – Complete bearer tokens are written to the Claims Service log
 
 | Field | Value |
 |---|---|
-| Severity | Low (the endpoint exists only under the `test` profile) |
-| Area | Claims Service `POST /api/test/trigger-event` → BFF Kafka consumer |
-| How found | Code review |
+| Severity | High |
+| Area | Claims Service – `RequestLoggingFilter` |
+| How found | Reproduced on 20 Nov 2026 |
 
 **Steps to reproduce**
-1. Run the Claims Service with the `test` profile.
-2. Call `POST /api/test/trigger-event` with a claim ID and a new status.
+1. Do the "Before you start" setup.
+2. Switch on DEBUG. No login is needed, see DEF-15:
+   ```bash
+   curl -s -X POST $CS/actuator/loggers/com.example.demo -H 'Content-Type: application/json' -d '{"configuredLevel":"DEBUG"}'
+   ```
+3. Make any authenticated call:
+   ```bash
+   curl -s -o /dev/null -H "Authorization: Bearer $CLAIMANT_TOKEN" $CS/api/claims
+   ```
+4. Search the log for the token:
+   ```bash
+   docker logs demo-claims-service --since 1m 2>&1 | grep -i "authorization: Bearer"
+   ```
+5. Put the log level back:
+   ```bash
+   curl -s -X POST $CS/actuator/loggers/com.example.demo -H 'Content-Type: application/json' -d '{"configuredLevel":null}'
+   ```
 
-**Expected:** the BFF receives the event with the claim ID and forwards it to the claim's owner.
-**Actual (from the code):**
-- The test payload puts the ID in `after.id`.
-- The real CDC column, which the BFF reads, is `after.claim_id`.
-- So the BFF gets an **empty claim ID** (and no `before` or `user_id`), and the event goes to admins only. Tests that use this endpoint don't test the real flow.
+**Expected:** no token values in the log, or a masked value such as `Bearer ***`.
+**Actual:** step 4 shows a line `authorization: Bearer eyJ…` containing the **complete** token (1,178 characters, identical to the one sent). Anyone who can read the logs can copy the token and act as that user for 24 hours.
 
-Files: [TestEventController.java:62-72](../code/claims-service/src/main/java/com/example/demo/adapter/in/web/TestEventController.java#L62-L72), [ClaimEventKafkaConsumer.java:118](../code/bff-service/src/main/java/com/example/demo/adapter/in/messaging/ClaimEventKafkaConsumer.java#L118)
+**Cause:** the filter logs every request header, with no masking, at DEBUG ([RequestLoggingFilter.java:40-43](../code/claims-service/src/main/java/com/example/demo/config/RequestLoggingFilter.java#L40-L43)). It also logs the first 50 characters separately (lines 34-36).
 
-![DEF-13](screenshots/DEF-13.png)
+![DEF-18](screenshots/DEF-18.png)
 
 ---
 
-## Checked and not a defect
+## Clean up after reproducing
 
-| Suspected issue | Result |
-|---|---|
-| Amount `0.001` stored as `0.00` | **Not a defect.** It is rejected with 400 "must be greater than or equal to 0.01". The real gap is 3-decimal amounts above 0.01, which is DEF-04. |
-| Admin dashboard stats stay stale after a claim is created | **Not reproduced.** The stats updated straight away (`cacheHit: false`). The code has a 5-minute cache with no clearing on writes (`DashboardController.java:24`), so it may appear under other conditions. Retest when the cache is hit. |
+- Delete `jar.txt`, `jar_claimant.txt` and `jar_admin.txt`.
+- Make sure the Claims Service log level is back to default (DEF-15, step 4).
+- Throwaway users or claims created while reproducing DEF-09 can be deleted in Keycloak and the database.
