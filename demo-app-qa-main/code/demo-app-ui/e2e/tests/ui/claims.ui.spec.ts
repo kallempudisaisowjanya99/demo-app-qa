@@ -2,6 +2,7 @@ import { seedClaim } from '../../commons/api-client';
 import { ClaimLimits, ClaimStatus, STATUS_LABEL, UiRoute } from '../../commons/constants';
 import { formatUiCurrency } from '../../utils/currency.utils';
 import { isoDateFromToday } from '../../utils/date.utils';
+import { attachScreenshot } from '../../utils/screenshot.utils';
 import { textOfLength } from '../../utils/string.utils';
 import { env } from '../../env';
 import { expect, test } from '../../fixtures/fixtures';
@@ -21,22 +22,26 @@ test.describe('Login', () => {
     await loginPage.signIn({ email: env.claimant.email, password: WRONG_PASSWORD });
 
     await loginPage.expectRefused();
+    await attachScreenshot(loginPage.page, 'Login refused');
   });
 
   test('UI-02: a claimant signs in, lands on My Claims, and can log out', async ({ loginPage, page }) => {
     await loginPage.signInExpectingSuccess(env.claimant);
     const claims = new ClaimsPage(page);
     await claims.expectLoaded();
+    await attachScreenshot(page, 'My Claims after sign-in');
 
     await claims.logout();
 
     await expect(loginPage.el.heading).toBeVisible();
+    await attachScreenshot(page, 'Login page after logout');
   });
 
   test('UI-03: opening My Claims without signing in redirects to login and remembers the page', async ({ page }) => {
     await page.goto(UiRoute.claims);
 
     await expect(page).toHaveURL(/\/login\?redirect=%2Fclaims$/);
+    await attachScreenshot(page, 'Redirected to login');
   });
 });
 
@@ -55,6 +60,7 @@ test.describe('Submit a claim', () => {
 
     await claimant.claims.expectClaimListed(claimId);
     await claimant.claims.expectStatus(claimId, ClaimStatus.Submitted);
+    await attachScreenshot(claimant.page, 'Claim listed as Submitted');
     await claimant.claims.openDetails(claimId);
     await claimant.claims.expectDetails({
       'Claim ID': claimId,
@@ -63,6 +69,7 @@ test.describe('Submit a claim', () => {
       Description: form.description,
       'Claim Amount': formatUiCurrency(Number(form.claimAmount)),
     });
+    await attachScreenshot(claimant.page, 'Claim details');
   });
 
   test('UI-05: a location shorter than 5 characters is rejected on step 1', async ({ claimant }) => {
@@ -75,6 +82,7 @@ test.describe('Submit a claim', () => {
     });
 
     await claimant.newClaim.expectFieldRejected(claimant.newClaim.el.incidentLocationField);
+    await attachScreenshot(claimant.page, 'Location rejected');
   });
 
   test('UI-06: a description shorter than 10 characters is rejected on step 2', async ({ claimant }) => {
@@ -89,6 +97,7 @@ test.describe('Submit a claim', () => {
     await claimant.newClaim.el.descriptionField.fill(textOfLength(ClaimLimits.description.min - 1));
 
     await claimant.newClaim.expectFieldRejected(claimant.newClaim.el.descriptionField);
+    await attachScreenshot(claimant.page, 'Description rejected');
   });
 });
 
@@ -105,12 +114,14 @@ test.describe('Who sees what', () => {
 
     await claimant.claims.expectClaimListed(mine.claimId);
     await claimant.claims.expectClaimNotListed(someoneElses.claimId);
+    await attachScreenshot(claimant.page, 'Only own claim listed');
   });
 
   test('UI-08: a claimant who opens the admin claims page is sent back to My Claims', async ({ claimant }) => {
     await claimant.page.goto(UiRoute.adminClaims);
 
     await claimant.claims.expectLoaded();
+    await attachScreenshot(claimant.page, 'Sent back to My Claims');
   });
 });
 
@@ -124,9 +135,11 @@ test.describe('Admin status changes', () => {
     await admin.adminClaims.open(claim.claimId);
 
     await admin.adminClaims.changeStatus(claim.claimId, ClaimStatus.UnderReview);
+    await attachScreenshot(admin.page, 'Admin changed status');
 
     await claimant.claims.open();
     await claimant.claims.expectStatus(claim.claimId, ClaimStatus.UnderReview);
+    await attachScreenshot(claimant.page, 'Claimant sees Under Review');
   });
 
   test('UI-10: for a Submitted claim the admin is offered only Under Review and Rejected', async ({
@@ -139,5 +152,6 @@ test.describe('Admin status changes', () => {
     const offered = await admin.adminClaims.offeredStatuses(claim.claimId);
 
     expect(offered.sort()).toEqual([STATUS_LABEL.REJECTED, STATUS_LABEL.UNDER_REVIEW].sort());
+    await attachScreenshot(admin.page, 'Status options offered');
   });
 });
