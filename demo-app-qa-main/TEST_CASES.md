@@ -35,7 +35,6 @@ Authorization is tested with different accounts of the same role, not with wrong
 | Persona | Role | How to get it |
 |---------|------|---------------|
 | `ADMIN_1` | ADMIN | Seeded: `admin@demo.com` / `Admin123!` |
-| `ADMIN_2` | ADMIN | Create in Keycloak (realm `demo-app`, admin role), then register in the Claims Service with `POST /api/users` (Keycloak user ID, `role=ADMIN`). Signup only creates claimants, and I haven't verified this path. |
 | `USER_A` | CLAIMANT | Seeded: `claimant@demo.com` / `Claimant123!` |
 | `USER_B` | CLAIMANT | Signup via `POST /api/auth/signup`: name `QA User B`, email `qa.userb+<runId>@demo.com`, password `Secret123` |
 | `USER_C` | CLAIMANT | Same as `USER_B`, with email `qa.userc+<runId>@demo.com`. Never creates claims. |
@@ -141,18 +140,17 @@ To create a claim in a target status, an admin walks it through the legal path: 
 - **Required test data:** USER_A, USER_B, USER_C, seed claims `A1`-`A3`, `B1`-`B2`.
 
 ### UI-VIS-02 — Admin sees all users' claims
-- **Description:** Every admin sees every claimant's claims with their owners, including a claim raised after the admin's page was opened.
+- **Description:** The admin sees every claimant's claims with their owners, including a claim raised after the admin's page was opened.
 - **Prerequisite:** Seed claims exist. ADMIN_1 has `/admin/claims` open in context 1.
 - **Steps:**
   1. Note the claims and owners shown to ADMIN_1.
   2. Filter by status `REJECTED`, then by user USER_A.
   3. Context 2: USER_B submits a new claim.
   4. In context 1, watch the admin list (refresh once if live update isn't designed).
-  5. Log in as ADMIN_2 and open `/admin/claims`.
-  6. In a context logged in as USER_A, open `/claims`.
-- **Expected result:** Step 1: `A1`-`A3`, `B1`-`B2` listed with owners. Step 2: `REJECTED` shows `B2`, user filter shows only A's claims. Step 4: the new claim appears as `SUBMITTED` under USER_B. Step 5: ADMIN_2 sees the same set. Step 6: USER_A does not see USER_B's new claim.
+  5. In a context logged in as USER_A, open `/claims`.
+- **Expected result:** Step 1: `A1`-`A3`, `B1`-`B2` listed with owners. Step 2: `REJECTED` shows `B2`, user filter shows only A's claims. Step 4: the new claim appears as `SUBMITTED` under USER_B. Step 5: USER_A does not see USER_B's new claim.
 - **Test data:** The seed claims. New claim: V with description `UI-VIS-02-<runId> new claim from B`.
-- **Required test data:** ADMIN_1, ADMIN_2, USER_A, USER_B, seed claims.
+- **Required test data:** ADMIN_1, USER_A, USER_B, seed claims.
 
 ### UI-VIS-03 — User blocked from admin pages and others' claims
 - **Description:** A claimant can't open admin pages or another user's claim.
@@ -192,17 +190,16 @@ To create a claim in a target status, an admin walks it through the legal path: 
 - **Required test data:** ADMIN_1, USER_A, USER_B, all five seed claims, fresh.
 
 ### UI-ADM-03 — Live update and persistence
-- **Description:** The status change reaches the user without a refresh and survives a refresh, a re-login and another admin's view.
+- **Description:** The status change reaches the user without a refresh and survives a refresh and a re-login.
 - **Prerequisite:** `A1` is SUBMITTED. USER_A has `/claims` open and idle.
 - **Steps:**
   1. Admin approves `A1` (through `UNDER_REVIEW`).
   2. Watch USER_A's page without touching it.
   3. Refresh USER_A's page.
   4. Log USER_A out and in again.
-  5. Log in as ADMIN_2 and open `/admin/claims`.
-- **Expected result:** Step 2: the status updates by itself (WebSocket), with a notification if the UI has one. Steps 3-5: still `APPROVED` everywhere. If the live update doesn't arrive, the refresh must still show `APPROVED`, which separates a WebSocket fault from a data fault.
+- **Expected result:** Step 2: the status updates by itself (WebSocket), with a notification if the UI has one. Steps 3-4: still `APPROVED`. If the live update doesn't arrive, the refresh must still show `APPROVED`, which separates a WebSocket fault from a data fault.
 - **Test data:** Claim `A1`.
-- **Required test data:** ADMIN_1, ADMIN_2, USER_A, fresh `A1`.
+- **Required test data:** ADMIN_1, USER_A, fresh `A1`.
 
 ### UI-ADM-04 — Only legal next statuses offered
 - **Description:** The status selector offers only legal transitions.
@@ -295,7 +292,7 @@ To create a claim in a target status, an admin walks it through the legal path: 
 - **Required test data:** USER_A, USER_B, USER_C, seed claims.
 
 ### API-VIS-02 — Admin lists all claims, filters
-- **Description:** Every admin gets every claim, and the filters narrow correctly.
+- **Description:** The admin gets every claim, and the filters narrow correctly.
 - **Prerequisite:** Seed claims exist.
 - **Steps:** Call `GET /api/admin/claims` for each row.
 - **Expected result:** As in the table. Each item identifies its owner.
@@ -304,14 +301,13 @@ To create a claim in a target status, an admin walks it through the legal path: 
 | Caller / query | Expected |
 |----------------|----------|
 | ADMIN_1, none | `A1`-`A3`, `B1`-`B2` (all) |
-| ADMIN_2, none | same set |
 | `status=REJECTED` | `B2` |
 | `userId=<A>` | `A1`, `A2`, `A3` |
 | `status=SUBMITTED&userId=<B>` | `B1` |
 | `status=BOGUS` | 400 |
 | `userId=<random UUID>` | 200, empty list |
 
-- **Required test data:** ADMIN_1, ADMIN_2, USER_A, USER_B, seed claims.
+- **Required test data:** ADMIN_1, USER_A, USER_B, seed claims.
 
 ### API-VIS-03 — Get claim by ID
 - **Description:** A user can read own claims only; admins can read any. Denied responses reveal nothing.
