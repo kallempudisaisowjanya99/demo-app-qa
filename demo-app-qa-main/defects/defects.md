@@ -59,11 +59,8 @@ KC=http://localhost:8180/realms/demo-app/protocol/openid-connect/token
 BFF=http://localhost:8090
 CS=http://localhost:8080
 
-token() {  # usage: token <email> <password>
-  curl -s $KC -d grant_type=password -d client_id=demo-app-ui \
-       -d username="$1" -d password="$2" |
-  node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).access_token))"
-}
+# usage: token <email> <password>   (sed, not node: piping into node fails in Git Bash with "stdin is not a tty")
+token() { curl -s $KC -d grant_type=password -d client_id=demo-app-ui -d username="$1" -d password="$2" | sed -E 's/.*"access_token":"([^"]+)".*/\1/'; }
 CLAIMANT_TOKEN=$(token claimant@demo.com 'Claimant123!')
 ADMIN_TOKEN=$(token admin@demo.com 'Admin123!')
 echo ${CLAIMANT_TOKEN:0:20} ${ADMIN_TOKEN:0:20}     # both lines must print text
@@ -79,6 +76,13 @@ echo ${CLAIMANT_TOKEN:0:20} ${ADMIN_TOKEN:0:20}     # both lines must print text
 | Severity | Critical |
 | Area | BFF – `AdminController`, `ClaimsServiceAdapter` |
 | How found | Code review. It is a race condition, so one request can't show it. |
+
+**Why the correct behaviour is needed:** the Claims Service decides two things from the token on each call: what data to return, and who owns a new claim. Each call must therefore carry the token of the user who made it.
+
+**Why this is a defect:**
+- One request can go out with another request's token. A claimant's call could run with the service account's full-access token, or a new claim could be saved under the wrong owner.
+- This breaks the basic rule that every user acts only as themselves.
+- The cause is shared, changeable state in a singleton used by many threads at once, which is a known thread-safety error.
 
 **Steps to reproduce**
 1. Log in through the BFF as both users and save their cookies:
@@ -126,6 +130,15 @@ Files: [AdminController.java:36](../code/bff-service/src/main/java/com/example/d
 | Area | Claims Service – `GET /api/admin/claims`, `GET /api/admin/dashboard/stats`, `GET /api/users` |
 | How found | Reproduced on 20 Nov 2026 |
 
+**Why the correct behaviour is needed:**
+- The full claims list, the user list and the dashboard hold every customer's personal and financial data, so only admins may see them.
+- Each service must enforce its own access rules. The BFF is not the only way in, because port 8080 can be reached directly.
+
+**Why this is a defect:**
+- Three sources say these endpoints are admin-only: the code (`@PreAuthorize("hasRole('ADMIN')")`), the API spec (403) and the BFF, which blocks the same call.
+- The Claims Service still returns the data, so one customer can read every other customer's claims, names and emails.
+- That is a personal-data breach between users, the highest severity on our scale.
+
 **Steps to reproduce**
 1. Do the "Before you start" setup to get `CLAIMANT_TOKEN`. This token holds only the realm role `claimant`.
 2. Call the three admin endpoints on the Claims Service with the claimant token:
@@ -170,6 +183,13 @@ In the screenshot, emails of users other than the demo accounts are masked.
 | Area | BFF – `POST /api/auth/login` |
 | How found | Reproduced on 19 Nov 2026 |
 
+**Why the correct behaviour is needed:** login is the only way into the app. A correct email and password must always work, however many people log in at the same time, for example at the start of the working day or after an outage.
+
+**Why this is a defect:**
+- Correct passwords are rejected with "Invalid email or password". Users can't get in, and they're told something false.
+- They may then reset their password or lock their account, which adds support work.
+- Whether a login succeeds depends on timing, not on the password. That is a concurrency bug.
+
 **Steps to reproduce**
 1. Send 10 logins with **correct** passwords at the same moment, 5 for each account:
    ```bash
@@ -199,6 +219,15 @@ In the screenshot, emails of users other than the demo accounts are masked.
 | Severity | High |
 | Area | Real-time events: Claims Service → Kafka → BFF → UI |
 | How found | Reproduced on 19 Nov 2026 |
+
+**Why the correct behaviour is needed:**
+- The app promises live updates: the header shows a green **Live** indicator, and the README describes real-time events through Kafka and WebSocket.
+- Claimants rely on this to see a decision on their claim without reloading the page.
+
+**Why this is a defect:**
+- The feature doesn't work at all with the standard startup.
+- The UI still shows **Live**, which tells the user they are seeing current data when they are not.
+- The configuration (`APP_EVENTS_CDC_ENABLED: "true"`) contradicts the default the README documents.
 
 **Steps to reproduce**
 1. Start the app the normal way (`./start-infra.sh`, then `./start-app.sh`).
@@ -230,11 +259,22 @@ In the screenshot, emails of users other than the demo accounts are masked.
 | Area | Claims Service – `GET /api/users/{id}` and `POST /api/users` |
 | How found | Code review. The read access was reproduced on 20 Nov 2026. |
 
+**Why the correct behaviour is needed:**
+- A user record holds personal data (email, name, role), and its user ID links the person to their claims.
+- Only the user themselves, an admin or the BFF service account should read a record.
+- Only the BFF should create a record or change its ID.
+
+**Why this is a defect:**
+- Any logged-in user can read anyone's record.
+- Any logged-in user can also change which ID an email belongs to, and so take over another person's claims.
+- The checks are inconsistent within the same controller: `listAllUsers` has the admin check, but `getUser` and `createUser` don't.
+
 **Steps to reproduce: read another user's record**
 1. Do the "Before you start" setup.
 2. Get the admin's user ID from their token:
    ```bash
-   ADMIN_ID=$(node -e "const p='$ADMIN_TOKEN'.split('.')[1];console.log(JSON.parse(Buffer.from(p,'base64url')).sub)")
+   ADMIN_ID=$(echo "$ADMIN_TOKEN" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | sed -E 's/.*"sub":"([^"]+)".*/\1/')
+   echo $ADMIN_ID     # prints an ID like 8b2ac368-4751-49bd-bd7c-d4f8357f28d4
    ```
 3. Read the admin's record with the **claimant's** token:
    ```bash
@@ -270,6 +310,16 @@ File: [UserController.java:40-70, 96-98](../code/claims-service/src/main/java/co
 | Severity | High |
 | Area | Claims Service and BFF – `/actuator/**` |
 | How found | Reproduced on 20 Nov 2026 |
+
+**Why the correct behaviour is needed:**
+- Actuator shows a service's internals and lets someone change settings while it runs. It is a tool for operators, not users.
+- Only `/actuator/health` needs to be public, because Docker uses it for its health check. Everything else should be switched off or need an admin login.
+
+**Why this is a defect:**
+- Every endpoint is switched on, and none needs a login.
+- Anyone who can reach the service can read its full API map and threads, reload its configuration, and change its log level.
+- Changing the log level to DEBUG turns on token logging (DEF-18).
+- Spring Boot's own guidance is to expose only `health` and secure the rest.
 
 **Steps to reproduce** (no login and no token needed)
 1. List the actuator endpoints of both services:
@@ -318,6 +368,16 @@ File: [UserController.java:40-70, 96-98](../code/claims-service/src/main/java/co
 | Area | UI header Logout button → BFF `POST /api/auth/logout` |
 | How found | Reproduced on 20 Nov 2026 |
 
+**Why the correct behaviour is needed:**
+- Logout must end the session on the server, not only in the browser's screen.
+- Otherwise the next person on the same computer can keep using the account.
+- This matters on shared or public computers, and it is a basic session-management rule in OWASP guidance.
+
+**Why this is a defect:**
+- The server refuses the logout with 403, and the session cookies stay valid.
+- The UI ignores the error and shows the login page, so the user believes they have logged out when they haven't.
+- The failure is silent, so the user has no reason to suspect anything.
+
 **Steps to reproduce: in the browser**
 1. Open `http://localhost:3001/login` and log in as `claimant@demo.com`.
 2. Open DevTools (F12) → **Network**.
@@ -358,6 +418,14 @@ curl -s -b jar.txt $BFF/api/claims -o /dev/null -w "claims after logout %{http_c
 | Severity | High |
 | Area | BFF – `POST /api/auth/signup` (and the UI sign-up page) |
 | How found | Reproduced on 20 Nov 2026 |
+
+**Why the correct behaviour is needed:**
+- Sign-up is how a new claimant gets an account. Without it, no new customer can use the app.
+- When the email is already registered, the user needs a clear "Email already exists" (409) so they know to log in instead.
+
+**Why this is a defect:**
+- Every sign-up fails with a generic 500, and the 201 and 409 responses documented in `bff-api.yml` never come back.
+- The cause is a wrong password in the configuration, so the feature is broken in the standard setup for everyone, not only in rare cases.
 
 **Steps to reproduce**
 1. Sign up a new user. Use a new email each time:
@@ -401,6 +469,15 @@ curl -s -b jar.txt $BFF/api/claims -o /dev/null -w "claims after logout %{http_c
 | Severity | High |
 | Area | Claims Service – `RequestLoggingFilter` |
 | How found | Reproduced on 20 Nov 2026 |
+
+**Why the correct behaviour is needed:**
+- Logs are read by many people and tools (developers, support, log platforms) and are kept for a long time.
+- So they must never contain secrets such as passwords or tokens.
+
+**Why this is a defect:**
+- The complete bearer token is written to the log, so anyone who can read the log can act as that user for the token's lifetime (24 hours).
+- Because of DEF-15, anyone can switch this logging on without logging in.
+- OWASP logging guidance says session tokens and credentials must never be logged.
 
 **Steps to reproduce**
 1. Do the "Before you start" setup.
