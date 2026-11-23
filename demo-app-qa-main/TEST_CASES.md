@@ -10,7 +10,7 @@ Every case has the same seven fields:
 
 | Field | Meaning |
 |-------|---------|
-| **ID** | Unique tag. It goes in the Playwright test title, for example `test('UI-ADM-01 ...')`. |
+| **ID** | Unique tag. It is the Playwright tag of every automated test that covers the case, for example `test('UI-09: ...', { tag: '@UI-ADM-01' }, ...)`, so `npx playwright test --grep @UI-ADM-01` runs exactly that case. See [Automated tests and traceability](#automated-tests-and-traceability). |
 | **Description** | What the test proves, in one sentence. |
 | **Prerequisite** | The state the system must be in before step 1. |
 | **Steps** | What the tester does, in order. |
@@ -421,3 +421,40 @@ Core scenario coverage:
 - Data tables become parameterised tests.
 - The visibility and security cases (UI-VIS-01/03, API-VIS-01/03, API-ADM-03) and UI-ADM-01 run on every PR. The rest run nightly, in both event modes.
 - Cases marked "record behaviour" (future incident date, 3-decimal amounts, `UNDER_REVIEW → SUBMITTED`) need a product-owner decision before the expected result is fixed.
+
+## Automated tests and traceability
+
+The Playwright suite has exactly **10 UI tests** (`code/demo-app-ui/e2e/tests/ui/claims.ui.spec.ts`) and **10 API tests** (`code/demo-app-ui/e2e/tests/api/claims.api.spec.ts`). The test title starts with the automated test number (UI-01, API-01). The tag is the case ID in this document. Some cases need more than one test, and some cases are still manual.
+
+| Automated test | Case (tag) | What it checks |
+|---|---|---|
+| UI-01 | UI-AUTH-01 | Wrong password is refused; the user stays on the login page (N) |
+| UI-02 | UI-AUTH-01 | Claimant signs in, lands on My Claims, logs out (P) |
+| UI-03 | UI-VIS-03 | Signed-out visit to My Claims redirects to login and keeps the return page (N, S) |
+| UI-04 | UI-CLM-01 | Claim submitted through the wizard is listed as Submitted with the entered values (P) |
+| UI-05 | UI-CLM-02 | Location of 4 characters is rejected on step 1 (B, N) |
+| UI-06 | UI-CLM-02 | Description of 9 characters is rejected on step 2 (B, N) |
+| UI-07 | UI-VIS-01 | My Claims shows the claimant's own claim, not another user's (S) |
+| UI-08 | UI-VIS-03 | Claimant opening the admin page is sent back to My Claims (N, S) |
+| UI-09 | UI-ADM-01 | Admin changes status; the claimant sees it (P) |
+| UI-10 | UI-ADM-04 | For a Submitted claim only Under Review and Rejected are offered (N) |
+| API-01 | API-CLM-01 | 201, body matches `ClaimResponse` in `bff-api.yml`, status SUBMITTED, read-back unchanged (P) |
+| API-02 | API-CLM-02 | Invalid values (location 4, description 9, amount 0, 1,000,000.01, `"five"`): 400 with a `ProblemDetail` body, nothing created (B, D, N) |
+| API-03 | API-CLM-02 | Missing input: each required field left out in turn, and an empty `{}` body: 400 with `ProblemDetail`, nothing created (N, D) |
+| API-04 | API-CLM-02 | Future incident date: 400, nothing created (N); fails today, see note below |
+| API-05 | API-VIS-01 | Own claims listed, body matches `ClaimSummaryResponse[]`, other user's claim absent (P, S) |
+| API-06 | API-VIS-01 | Claimant calling the admin list: 403, no claim data leaks (N, S) |
+| API-07 | API-VIS-01 | No login: 401, no claim data leaks (N, S) |
+| API-08 | API-ADM-01 | SUBMITTED → UNDER_REVIEW → APPROVED; the owner sees APPROVED (P) |
+| API-09 | API-ADM-02 | Illegal SUBMITTED → APPROVED is refused; claim unchanged (N) |
+| API-10 | API-ADM-03 | Status change without the CSRF token: 403, claim unchanged (N, S) |
+
+**Schema validation.** Every successful API response read by the tests (create, get, list) is validated against the BFF's own OpenAPI contract (`code/bff-service/src/main/resources/openapi/bff-api.yml`) with Ajv, through `e2e/commons/api-schema.ts`. Error bodies for 400 are validated against `ProblemDetail`. 401 and 403 answers have an empty body today, so for them the tests check that no claim data is returned.
+
+**Known failures (kept strict on purpose, with an annotation in the report):**
+- API-04: the BFF answers **500** for a future incident date instead of 400 (DEF-01, Medium, not listed in `defects/defects.md`).
+- API-02: for `claimAmount: "five"` the status is 400, but the body is Spring's default `{timestamp, status, error, path}`, not the `ProblemDetail` the contract documents.
+
+**Not automated yet (manual or later):** UI-VIS-02, UI-ADM-02, UI-ADM-03, API-CLM-03, API-VIS-02, API-VIS-03, API-ADM-04, and the remaining rows of the API-CLM-02 table (exact upper limits, wrong date formats, malformed JSON, wrong content type). The strict limit of 10 tests per suite is the reason.
+
+**Evidence.** Videos of all 10 UI tests are in [evidence/ui-videos](evidence/README.md). Each UI test also attaches a screenshot after each key check to the HTML report.

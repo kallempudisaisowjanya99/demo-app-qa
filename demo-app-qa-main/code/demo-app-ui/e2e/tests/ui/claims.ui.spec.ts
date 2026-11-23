@@ -13,10 +13,11 @@ import { WRONG_PASSWORD } from '../../testdata/login.data';
 /**
  * 10 browser tests against the UI (http://localhost:3001).
  * Claims needed as set-up are created through the API, which is faster and more reliable than the UI.
+ * The tag on each test is its test case ID in TEST_CASES.md.
  */
 
 test.describe('Login', () => {
-  test('UI-01: a wrong password is refused and the user stays on the login page', async ({ loginPage }) => {
+  test('UI-01: a wrong password is refused and the user stays on the login page', { tag: '@UI-AUTH-01' }, async ({ loginPage }) => {
     await loginPage.open();
 
     await loginPage.signIn({ email: env.claimant.email, password: WRONG_PASSWORD });
@@ -25,7 +26,7 @@ test.describe('Login', () => {
     await attachScreenshot(loginPage.page, 'Login refused');
   });
 
-  test('UI-02: a claimant signs in, lands on My Claims, and can log out', async ({ loginPage, page }) => {
+  test('UI-02: a claimant signs in, lands on My Claims, and can log out', { tag: '@UI-AUTH-01' }, async ({ loginPage, page }) => {
     await loginPage.signInExpectingSuccess(env.claimant);
     const claims = new ClaimsPage(page);
     await claims.expectLoaded();
@@ -37,7 +38,7 @@ test.describe('Login', () => {
     await attachScreenshot(page, 'Login page after logout');
   });
 
-  test('UI-03: opening My Claims without signing in redirects to login and remembers the page', async ({ page }) => {
+  test('UI-03: opening My Claims without signing in redirects to login and remembers the page', { tag: '@UI-VIS-03' }, async ({ page }) => {
     await page.goto(UiRoute.claims);
 
     await expect(page).toHaveURL(/\/login\?redirect=%2Fclaims$/);
@@ -46,7 +47,7 @@ test.describe('Login', () => {
 });
 
 test.describe('Submit a claim', () => {
-  test('UI-04: a claimant submits a claim through the wizard and sees it as Submitted with the entered values', async ({
+  test('UI-04: a claimant submits a claim through the wizard and sees it as Submitted with the entered values', { tag: '@UI-CLM-01' }, async ({
     claimant,
   }) => {
     const form = {
@@ -72,7 +73,7 @@ test.describe('Submit a claim', () => {
     await attachScreenshot(claimant.page, 'Claim details');
   });
 
-  test('UI-05: a location shorter than 5 characters is rejected on step 1', async ({ claimant }) => {
+  test('UI-05: a location shorter than 5 characters is rejected on step 1', { tag: '@UI-CLM-02' }, async ({ claimant }) => {
     await claimant.newClaim.open();
 
     await claimant.newClaim.fillIncidentDetails({
@@ -85,7 +86,7 @@ test.describe('Submit a claim', () => {
     await attachScreenshot(claimant.page, 'Location rejected');
   });
 
-  test('UI-06: a description shorter than 10 characters is rejected on step 2', async ({ claimant }) => {
+  test('UI-06: a description shorter than 10 characters is rejected on step 2', { tag: '@UI-CLM-02' }, async ({ claimant }) => {
     await claimant.newClaim.open();
     await claimant.newClaim.fillIncidentDetails({
       incidentDate: isoDateFromToday(-UI_CLAIM_FORM.daysAgo),
@@ -102,7 +103,7 @@ test.describe('Submit a claim', () => {
 });
 
 test.describe('Who sees what', () => {
-  test('UI-07: My Claims shows the claimant’s own claim and not someone else’s', async ({
+  test('UI-07: My Claims shows the claimant’s own claim and not someone else’s', { tag: '@UI-VIS-01' }, async ({
     claimant,
     claimantApi,
     otherUserApi,
@@ -117,7 +118,7 @@ test.describe('Who sees what', () => {
     await attachScreenshot(claimant.page, 'Only own claim listed');
   });
 
-  test('UI-08: a claimant who opens the admin claims page is sent back to My Claims', async ({ claimant }) => {
+  test('UI-08: a claimant who opens the admin claims page is sent back to My Claims', { tag: '@UI-VIS-03' }, async ({ claimant }) => {
     await claimant.page.goto(UiRoute.adminClaims);
 
     await claimant.claims.expectLoaded();
@@ -126,7 +127,7 @@ test.describe('Who sees what', () => {
 });
 
 test.describe('Admin status changes', () => {
-  test('UI-09: the admin moves a claim to Under Review and the claimant sees the new status', async ({
+  test('UI-09: the admin moves a claim to Under Review and the claimant sees the new status', { tag: '@UI-ADM-01' }, async ({
     admin,
     claimant,
     claimantApi,
@@ -142,7 +143,7 @@ test.describe('Admin status changes', () => {
     await attachScreenshot(claimant.page, 'Claimant sees Under Review');
   });
 
-  test('UI-10: for a Submitted claim the admin is offered only Under Review and Rejected', async ({
+  test('UI-10: for a Submitted claim the admin is offered only Under Review and Rejected', { tag: '@UI-ADM-04' }, async ({
     admin,
     claimantApi,
   }) => {

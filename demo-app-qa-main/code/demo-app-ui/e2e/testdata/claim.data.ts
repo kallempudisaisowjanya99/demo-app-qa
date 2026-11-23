@@ -26,6 +26,21 @@ export function uniqueDescription(testId: string): string {
   return `${testId}-${RUN_ID}-${counter} pipe burst in basement`;
 }
 
+/** Fields the OpenAPI contract (SubmitClaimRequest) marks as required. */
+export const REQUIRED_CLAIM_FIELDS = [
+  'incidentDate',
+  'incidentLocation',
+  'description',
+  'claimAmount',
+] as const satisfies readonly (keyof CreateClaimRequest)[];
+
+/** A copy of `claim` with one field left out, for the missing-input tests. */
+export function withoutField(claim: CreateClaimRequest, field: keyof CreateClaimRequest): Partial<CreateClaimRequest> {
+  const copy: Partial<CreateClaimRequest> = { ...claim };
+  delete copy[field];
+  return copy;
+}
+
 /** A valid claim; override any field to make it invalid. */
 export function buildClaim(testId: string, overrides: Partial<CreateClaimRequest> = {}): CreateClaimRequest {
   return {

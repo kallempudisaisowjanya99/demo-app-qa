@@ -2,8 +2,10 @@ import { defineConfig, devices } from '@playwright/test';
 import { env } from './e2e/env';
 
 /**
- * E2E_ARTIFACTS=all keeps trace, screenshot and video for every test (evidence runs).
+ * E2E_ARTIFACTS=all keeps the screenshot and video of every test (evidence runs).
  * Default keeps them only for failures, which keeps CI artifacts small.
+ * The trace is kept only for failures in both modes: with trace 'on' and the installed
+ * Chrome, the tests' own page.screenshot() calls never return and the test times out.
  */
 const keepEverything = process.env['E2E_ARTIFACTS'] === 'all';
 // Locally the installed Google Chrome is used (no browser download needed); CI uses Playwright's Chromium.
@@ -27,7 +29,7 @@ export default defineConfig({
   ],
   use: {
     baseURL: env.uiBaseUrl,
-    trace: keepEverything ? 'on' : 'retain-on-failure',
+    trace: 'retain-on-failure',
     screenshot: keepEverything ? 'on' : 'only-on-failure',
     video: keepEverything ? 'on' : 'retain-on-failure',
     actionTimeout: 10_000,

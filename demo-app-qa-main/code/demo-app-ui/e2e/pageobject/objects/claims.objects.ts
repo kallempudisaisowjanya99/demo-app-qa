@@ -35,11 +35,13 @@ export class ClaimsObjects {
     return this.row(claimId).getByRole('button', { name: 'View Details' });
   }
 
-  /** The value shown next to a field label inside the details dialog. */
-  detailValue(field: ClaimDetailField): Locator {
-    return this.detailDialog
-      .getByRole('term')
-      .filter({ hasText: new RegExp(`^${field}$`) })
-      .locator('xpath=following-sibling::*[1]');
+  /** Field labels in the details dialog (`<dt>`, role "term"). */
+  get detailLabels(): Locator {
+    return this.detailDialog.getByRole('term');
+  }
+
+  /** Field values in the details dialog (`<dd>`, role "definition"), in the same order as the labels. */
+  get detailValues(): Locator {
+    return this.detailDialog.getByRole('definition');
   }
 }

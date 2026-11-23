@@ -176,8 +176,23 @@ cd code/demo-app-ui && npm test
 ### Run E2E tests (requires full stack running)
 
 ```bash
-cd code/demo-app-ui && npx playwright test
+cd code/demo-app-ui
+cp e2e/.env.example e2e/.env       # then fill in the users from "Test Users" (e2e/.env is gitignored)
+npx playwright test                # 10 API + 10 UI tests
+npx playwright test --project=api  # or --project=ui-chromium
+npx playwright test --grep @UI-ADM-01   # run the tests for one test case (tags = IDs in TEST_CASES.md)
+npx playwright show-report         # HTML report with a screenshot after each key check
 ```
+
+Evidence run, which keeps the video of every test (by default videos and traces are kept only for failures):
+
+```bash
+E2E_ARTIFACTS=all npx playwright test --project=ui-chromium
+```
+
+Videos go to `test-results/<test>/` (gitignored). The videos from the last evidence run are committed in [evidence/](evidence/README.md).
+
+Two API tests fail on purpose because they expose real defects. Each is annotated in the report: API-04 (future date gives 500) and API-02, row `"five"` (the error body is not `ProblemDetail`). See [TEST_CASES.md](TEST_CASES.md#automated-tests-and-traceability).
 
 ---
 

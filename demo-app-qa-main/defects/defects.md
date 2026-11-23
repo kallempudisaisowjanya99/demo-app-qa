@@ -21,23 +21,27 @@ This file lists only **Critical** and **High** defects. Medium and Low findings 
 | Critical | Security problem, or one user can see another user's data |
 | High | A main feature is broken or unsafe |
 
+Every defect has the same fields: ID, Type, Severity, Priority, Status, Environment, Area, How found, Reported by, Reported on, Evidence, why the correct behaviour is needed, why it is a defect, steps to reproduce, expected and actual result.
+
+**Priority scale:** P1 – fix before any release (security or data exposure). P2 – fix in the current release (a main feature is broken).
+
 The **How found** column means:
 - **Reproduced:** seen in the running app. The screenshot shows the real request and response, or the real screen.
 - **Code review:** found in the source code. The screenshot shows the exact code lines.
 
 ## Summary
 
-| ID | Title | Severity | How found |
-|---|---|---|---|
-| [DEF-08](#def-08) | Shared API client swaps bearer tokens between concurrent requests | Critical | Code review |
-| [DEF-14](#def-14) | Claimants can call admin-only Claims Service endpoints: all claims, all users, dashboard | Critical | Reproduced |
-| [DEF-05](#def-05) | Valid logins at the same time are refused with 401 | High | Reproduced |
-| [DEF-07](#def-07) | Claim status changes don't reach users in real time | High | Reproduced |
-| [DEF-09](#def-09) | User endpoints have no admin check; a user ID can be re-pointed | High | Code review, read access reproduced |
-| [DEF-15](#def-15) | Actuator endpoints are public; anyone can change the log level | High | Reproduced |
-| [DEF-16](#def-16) | Logout fails with 403 and the user stays logged in | High | Reproduced |
-| [DEF-17](#def-17) | Sign-up always fails with 500 | High | Reproduced |
-| [DEF-18](#def-18) | Complete bearer tokens are written to the Claims Service log | High | Reproduced |
+| ID | Title | Severity | Priority | Status | How found |
+|---|---|---|---|---|---|
+| [DEF-08](#def-08) | Shared API client swaps bearer tokens between concurrent requests | Critical | P1 | Open | Code review |
+| [DEF-14](#def-14) | Claimants can call admin-only Claims Service endpoints: all claims, all users, dashboard | Critical | P1 | Open | Reproduced |
+| [DEF-05](#def-05) | Valid logins at the same time are refused with 401 | High | P2 | Open | Reproduced |
+| [DEF-07](#def-07) | Claim status changes don't reach users in real time | High | P2 | Open | Reproduced |
+| [DEF-09](#def-09) | User endpoints have no admin check; a user ID can be re-pointed | High | P2 | Open | Code review, read access reproduced |
+| [DEF-15](#def-15) | Actuator endpoints are public; anyone can change the log level | High | P1 | Open | Reproduced |
+| [DEF-16](#def-16) | Logout fails with 403 and the user stays logged in | High | P2 | Open | Reproduced |
+| [DEF-17](#def-17) | Sign-up always fails with 500 | High | P2 | Open | Reproduced |
+| [DEF-18](#def-18) | Complete bearer tokens are written to the Claims Service log | High | P1 | Open | Reproduced |
 
 ---
 
@@ -73,7 +77,15 @@ echo ${CLAIMANT_TOKEN:0:20} ${ADMIN_TOKEN:0:20}     # both lines must print text
 
 | Field | Value |
 |---|---|
+| ID | DEF-08 |
+| Type | Security – concurrency (thread safety) |
 | Severity | Critical |
+| Priority | P1 – fix before any release |
+| Status | Open |
+| Environment | Local Docker stack (`docker-compose.infra.yml` + `docker-compose.apps.yml`), Windows 11, Chrome; UI :3001, BFF :8090, Claims Service :8080, Keycloak :8180 |
+| Reported by | SaiSowjanyaK (QA) |
+| Reported on | 19 Nov 2026 |
+| Evidence | [DEF-08.png](screenshots/DEF-08.png) (shown at the end of this defect) |
 | Area | BFF – `AdminController`, `ClaimsServiceAdapter` |
 | How found | Code review. It is a race condition, so one request can't show it. |
 
@@ -126,7 +138,15 @@ Files: [AdminController.java:36](../code/bff-service/src/main/java/com/example/d
 
 | Field | Value |
 |---|---|
+| ID | DEF-14 |
+| Type | Security – authorization (broken access control) |
 | Severity | Critical |
+| Priority | P1 – fix before any release |
+| Status | Open |
+| Environment | Local Docker stack (`docker-compose.infra.yml` + `docker-compose.apps.yml`), Windows 11, Chrome; UI :3001, BFF :8090, Claims Service :8080, Keycloak :8180 |
+| Reported by | SaiSowjanyaK (QA) |
+| Reported on | 20 Nov 2026 |
+| Evidence | [DEF-14.png](screenshots/DEF-14.png) (shown at the end of this defect) |
 | Area | Claims Service – `GET /api/admin/claims`, `GET /api/admin/dashboard/stats`, `GET /api/users` |
 | How found | Reproduced on 20 Nov 2026 |
 
@@ -179,7 +199,15 @@ In the screenshot, emails of users other than the demo accounts are masked.
 
 | Field | Value |
 |---|---|
+| ID | DEF-05 |
+| Type | Functional – concurrency (authentication) |
 | Severity | High |
+| Priority | P2 – fix in the current release |
+| Status | Open |
+| Environment | Local Docker stack (`docker-compose.infra.yml` + `docker-compose.apps.yml`), Windows 11, Chrome; UI :3001, BFF :8090, Claims Service :8080, Keycloak :8180 |
+| Reported by | SaiSowjanyaK (QA) |
+| Reported on | 19 Nov 2026 |
+| Evidence | [DEF-05.png](screenshots/DEF-05.png) (shown at the end of this defect) |
 | Area | BFF – `POST /api/auth/login` |
 | How found | Reproduced on 19 Nov 2026 |
 
@@ -216,7 +244,15 @@ In the screenshot, emails of users other than the demo accounts are masked.
 
 | Field | Value |
 |---|---|
+| ID | DEF-07 |
+| Type | Functional – real-time events |
 | Severity | High |
+| Priority | P2 – fix in the current release |
+| Status | Open |
+| Environment | Local Docker stack (`docker-compose.infra.yml` + `docker-compose.apps.yml`), Windows 11, Chrome; UI :3001, BFF :8090, Claims Service :8080, Keycloak :8180 |
+| Reported by | SaiSowjanyaK (QA) |
+| Reported on | 19 Nov 2026 |
+| Evidence | [DEF-07-ui-before-reload.png](screenshots/DEF-07-ui-before-reload.png), [DEF-07-ui-after-reload.png](screenshots/DEF-07-ui-after-reload.png), [DEF-07-code.png](screenshots/DEF-07-code.png) (shown at the end of this defect) |
 | Area | Real-time events: Claims Service → Kafka → BFF → UI |
 | How found | Reproduced on 19 Nov 2026 |
 
@@ -255,7 +291,15 @@ In the screenshot, emails of users other than the demo accounts are masked.
 
 | Field | Value |
 |---|---|
+| ID | DEF-09 |
+| Type | Security – authorization |
 | Severity | High |
+| Priority | P2 – fix in the current release |
+| Status | Open |
+| Environment | Local Docker stack (`docker-compose.infra.yml` + `docker-compose.apps.yml`), Windows 11, Chrome; UI :3001, BFF :8090, Claims Service :8080, Keycloak :8180 |
+| Reported by | SaiSowjanyaK (QA) |
+| Reported on | 20 Nov 2026 |
+| Evidence | [DEF-09-repro.png](screenshots/DEF-09-repro.png), [DEF-09.png](screenshots/DEF-09.png) (shown at the end of this defect) |
 | Area | Claims Service – `GET /api/users/{id}` and `POST /api/users` |
 | How found | Code review. The read access was reproduced on 20 Nov 2026. |
 
@@ -307,7 +351,15 @@ File: [UserController.java:40-70, 96-98](../code/claims-service/src/main/java/co
 
 | Field | Value |
 |---|---|
+| ID | DEF-15 |
+| Type | Security – configuration (exposed management endpoints) |
 | Severity | High |
+| Priority | P1 – fix before any release |
+| Status | Open |
+| Environment | Local Docker stack (`docker-compose.infra.yml` + `docker-compose.apps.yml`), Windows 11, Chrome; UI :3001, BFF :8090, Claims Service :8080, Keycloak :8180 |
+| Reported by | SaiSowjanyaK (QA) |
+| Reported on | 20 Nov 2026 |
+| Evidence | [DEF-15.png](screenshots/DEF-15.png) (shown at the end of this defect) |
 | Area | Claims Service and BFF – `/actuator/**` |
 | How found | Reproduced on 20 Nov 2026 |
 
@@ -364,7 +416,15 @@ File: [UserController.java:40-70, 96-98](../code/claims-service/src/main/java/co
 
 | Field | Value |
 |---|---|
+| ID | DEF-16 |
+| Type | Functional / security – session handling |
 | Severity | High |
+| Priority | P2 – fix in the current release |
+| Status | Open |
+| Environment | Local Docker stack (`docker-compose.infra.yml` + `docker-compose.apps.yml`), Windows 11, Chrome; UI :3001, BFF :8090, Claims Service :8080, Keycloak :8180 |
+| Reported by | SaiSowjanyaK (QA) |
+| Reported on | 20 Nov 2026 |
+| Evidence | [DEF-16-ui.png](screenshots/DEF-16-ui.png), [DEF-16-api.png](screenshots/DEF-16-api.png) (shown at the end of this defect) |
 | Area | UI header Logout button → BFF `POST /api/auth/logout` |
 | How found | Reproduced on 20 Nov 2026 |
 
@@ -415,7 +475,15 @@ curl -s -b jar.txt $BFF/api/claims -o /dev/null -w "claims after logout %{http_c
 
 | Field | Value |
 |---|---|
+| ID | DEF-17 |
+| Type | Functional |
 | Severity | High |
+| Priority | P2 – fix in the current release |
+| Status | Open |
+| Environment | Local Docker stack (`docker-compose.infra.yml` + `docker-compose.apps.yml`), Windows 11, Chrome; UI :3001, BFF :8090, Claims Service :8080, Keycloak :8180 |
+| Reported by | SaiSowjanyaK (QA) |
+| Reported on | 20 Nov 2026 |
+| Evidence | [DEF-17.png](screenshots/DEF-17.png) (shown at the end of this defect) |
 | Area | BFF – `POST /api/auth/signup` (and the UI sign-up page) |
 | How found | Reproduced on 20 Nov 2026 |
 
@@ -466,7 +534,15 @@ curl -s -b jar.txt $BFF/api/claims -o /dev/null -w "claims after logout %{http_c
 
 | Field | Value |
 |---|---|
+| ID | DEF-18 |
+| Type | Security – sensitive data in logs |
 | Severity | High |
+| Priority | P1 – fix before any release |
+| Status | Open |
+| Environment | Local Docker stack (`docker-compose.infra.yml` + `docker-compose.apps.yml`), Windows 11, Chrome; UI :3001, BFF :8090, Claims Service :8080, Keycloak :8180 |
+| Reported by | SaiSowjanyaK (QA) |
+| Reported on | 20 Nov 2026 |
+| Evidence | [DEF-18.png](screenshots/DEF-18.png) (shown at the end of this defect) |
 | Area | Claims Service – `RequestLoggingFilter` |
 | How found | Reproduced on 20 Nov 2026 |
 

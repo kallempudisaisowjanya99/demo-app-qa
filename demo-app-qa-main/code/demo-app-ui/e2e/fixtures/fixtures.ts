@@ -1,4 +1,12 @@
-import { test as base, expect, type Page } from '@playwright/test';
+import {
+  test as base,
+  expect,
+  type Browser,
+  type BrowserContext,
+  type Page,
+  type PlaywrightTestOptions,
+  type TestInfo,
+} from '@playwright/test';
 import { AdminApi, ClaimsApi } from '../commons/api-client';
 import { ApiSession } from '../commons/api-session';
 import { env, type Credentials } from '../env';
@@ -70,26 +78,58 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 
   loginPage: async ({ page }, use) => use(new LoginPage(page)),
 
-  claimant: async ({ browser }, use) => {
-    const context = await browser.newContext();
+  claimant: async ({ browser }, use, testInfo) => {
+    const context = await openContext(browser, testInfo);
     const page = await signedInPage(await context.newPage(), env.claimant);
     const claims = new ClaimsPage(page);
     await claims.expectLoaded();
     await use({ page, claims, newClaim: new NewClaimPage(page) });
-    await context.close();
+    await closeContext(context, page, testInfo, 'claimant');
   },
 
-  admin: async ({ browser }, use) => {
-    const context = await browser.newContext();
+  admin: async ({ browser }, use, testInfo) => {
+    const context = await openContext(browser, testInfo);
     const page = await signedInPage(await context.newPage(), env.admin);
     await use({ page, adminClaims: new AdminClaimsPage(page) });
-    await context.close();
+    await closeContext(context, page, testInfo, 'admin');
   },
 });
 
 async function signedInPage(page: Page, credentials: Credentials): Promise<Page> {
   await new LoginPage(page).signInExpectingSuccess(credentials);
   return page;
+}
+
+/** The project's `video` mode; the config can give it as a string or as `{ mode }`. */
+function videoMode(testInfo: TestInfo): string {
+  const video = testInfo.project.use.video as PlaywrightTestOptions['video'] | undefined;
+  return typeof video === 'object' ? video.mode : (video ?? 'off');
+}
+
+/**
+ * Playwright records video only for its own `page` fixture, so the extra contexts
+ * opened here record it themselves, following the `video` setting in the config.
+ */
+async function openContext(browser: Browser, testInfo: TestInfo): Promise<BrowserContext> {
+  if (videoMode(testInfo) === 'off') {
+    return browser.newContext();
+  }
+  return browser.newContext({ recordVideo: { dir: testInfo.outputPath('videos') } });
+}
+
+/** Closes the context, then attaches its video to the report, or deletes it when it is not needed. */
+async function closeContext(context: BrowserContext, page: Page, testInfo: TestInfo, persona: string): Promise<void> {
+  const video = page.video();
+  await context.close();
+  if (video === null) {
+    return;
+  }
+  const failed = testInfo.status !== testInfo.expectedStatus;
+  if (videoMode(testInfo) === 'on' || failed) {
+    // attach() copies the file into the report, so the original is deleted below either way.
+    await testInfo.attach(`video (${persona})`, { path: await video.path(), contentType: 'video/webm' });
+  }
+  await video.delete();
 }
 
 export { expect };

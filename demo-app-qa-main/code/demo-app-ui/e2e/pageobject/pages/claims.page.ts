@@ -40,9 +40,14 @@ export class ClaimsPage extends BasePage {
     await expect(this.el.detailDialog).toBeVisible();
   }
 
+  /** Each label in the details dialog is followed by its value, so a label's position finds its value. */
   async expectDetails(expected: Partial<Record<ClaimDetailField, string>>): Promise<void> {
+    await expect(this.el.detailLabels.first()).toBeVisible();
+    const labels = (await this.el.detailLabels.allInnerTexts()).map((label) => label.trim());
     for (const [field, text] of Object.entries(expected) as [ClaimDetailField, string][]) {
-      await expect(this.el.detailValue(field), field).toContainText(text);
+      const position = labels.indexOf(field);
+      expect(position, `"${field}" is shown in the details dialog`).toBeGreaterThanOrEqual(0);
+      await expect(this.el.detailValues.nth(position), field).toContainText(text);
     }
   }
 

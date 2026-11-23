@@ -2,8 +2,11 @@ import { expect, type Page } from '@playwright/test';
 import { UiRoute } from '../../commons/constants';
 import type { Credentials } from '../../env';
 import { LoginObjects } from '../objects/login.objects';
+import { jitteredIntervals } from '../../utils/retry.utils';
 
-const SIGN_IN_ATTEMPTS = 5;
+/** Base waits between refused sign-in attempts, used by `toPass` (jitter is added). */
+const SIGN_IN_RETRY_INTERVALS_MS = [500, 1_000, 2_000, 3_000];
+const SIGN_IN_TIMEOUT_MS = 45_000;
 
 export class LoginPage {
   readonly el: LoginObjects;
@@ -31,18 +34,15 @@ export class LoginPage {
 
   /**
    * Signs in with valid credentials. The BFF sometimes refuses valid logins that
-   * arrive together, so a refusal is retried after a short pause.
+   * arrive together (DEF-05), so a refused attempt is retried by Playwright's
+   * `toPass` with growing, jittered intervals; there is no fixed sleep.
    */
   async signInExpectingSuccess(credentials: Credentials): Promise<void> {
-    for (let attempt = 1; attempt <= SIGN_IN_ATTEMPTS; attempt++) {
+    await expect(async () => {
       await this.open();
       await this.signIn(credentials);
-      if (await this.leftLoginPage()) {
-        return;
-      }
-      await this.page.waitForTimeout(attempt * 300 + Math.random() * 700);
-    }
-    throw new Error(`Could not sign in as ${credentials.email} after ${SIGN_IN_ATTEMPTS} attempts`);
+      expect(await this.leftLoginPage(), `sign-in as ${credentials.email} accepted`).toBe(true);
+    }).toPass({ intervals: jitteredIntervals(SIGN_IN_RETRY_INTERVALS_MS), timeout: SIGN_IN_TIMEOUT_MS });
   }
 
   private async leftLoginPage(): Promise<boolean> {

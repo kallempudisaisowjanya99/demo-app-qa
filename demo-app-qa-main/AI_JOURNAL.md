@@ -7,6 +7,8 @@ This journal records how I used an AI assistant (Claude Code) during the QA work
 
 The AI did the drafting and the typing. The decisions, corrections and final checks were mine.
 
+**Exact prompts.** The prompts in the sections below are cleaned-up, reusable versions written in RACE after the work. Every prompt exactly as I typed it, in time order (125 prompts, 18 to 23 Nov 2026, typos included), is in **[AI_PROMPT_LOG.md](AI_PROMPT_LOG.md)**. Each section below names the log entries it came from.
+
 ## The prompt format: RACE
 
 Every prompt below follows **RACE**:
@@ -50,6 +52,8 @@ API contracts: bff-api.yml and claims-api.yml (OpenAPI).
 
 ## 1. Test strategy
 
+Exact prompts: P026–P033, P039 in [AI_PROMPT_LOG.md](AI_PROMPT_LOG.md).
+
 ### Prompt
 ```
 ROLE: You are a senior QA lead who writes risk-based test strategies for microservice
@@ -87,6 +91,8 @@ A first strategy, with an out-of-scope list, ranked risks R1–R7, a test pyrami
 
 ## 2. Test case design
 
+Exact prompts: P034–P040, P080–P084 in [AI_PROMPT_LOG.md](AI_PROMPT_LOG.md).
+
 ### Prompt
 ```
 ROLE: You are a test designer skilled in boundary-value analysis, equivalence
@@ -123,6 +129,8 @@ EXPECTATION:
 ---
 
 ## 3. Code structure
+
+Exact prompts: P042, P043, P056, P057, P065, P092–P094 in [AI_PROMPT_LOG.md](AI_PROMPT_LOG.md).
 
 ### Prompt
 ```
@@ -162,6 +170,8 @@ This is the area where I corrected the AI most. Each change was my decision:
 ---
 
 ## 4. Playwright automation
+
+Exact prompts: P041–P061, P087–P091 in [AI_PROMPT_LOG.md](AI_PROMPT_LOG.md).
 
 ### Prompt
 ```
@@ -204,6 +214,8 @@ EXPECTATION:
 
 ## 5. UI testing
 
+Exact prompts: P058, P060, P116–P123 in [AI_PROMPT_LOG.md](AI_PROMPT_LOG.md).
+
 ### Prompt
 ```
 ROLE: You are a QA engineer testing a web UI as a real user would, and automating
@@ -239,6 +251,8 @@ UI-01 to UI-10, plus the screenshots that proved DEF-06 (about 11 s admin page l
 
 ## 6. API testing
 
+Exact prompts: P044, P114, P115 in [AI_PROMPT_LOG.md](AI_PROMPT_LOG.md).
+
 ### Prompt
 ```
 ROLE: You are an API test engineer who checks status codes, response bodies,
@@ -272,6 +286,8 @@ API-01 to API-10, and it exposed DEF-01 to DEF-05 (wrong 500 codes, the 3-decima
 
 ## 7. Defect writing
 
+Exact prompts: P044, P062–P064, P078, P096–P109 in [AI_PROMPT_LOG.md](AI_PROMPT_LOG.md).
+
 ### Prompt
 ```
 ROLE: You are a QA engineer writing defect reports that a developer can reproduce
@@ -297,7 +313,9 @@ EXPECTATION:
 ```
 
 ### What the AI produced
-13 defects (7 reproduced, 6 from code review), each with steps, severity, cause and a screenshot embedded in `defects/defects.md`.
+First version (19 Nov): 13 defects (7 reproduced, 6 from code review), each with steps, severity, cause and a screenshot embedded in `defects/defects.md`.
+
+Final version (20 Nov): after a second review of the whole app, **9 Critical and High defects**: DEF-05, DEF-07, DEF-08, DEF-09 and the new DEF-14 to DEF-18 (admin endpoints open to claimants, public Actuator, logout 403, sign-up 500, tokens in the log). The Medium and Low findings (DEF-01 to DEF-04, DEF-06, DEF-10 to DEF-13) were removed from the file at my request; their IDs are not reused.
 
 ### My review and changes
 - **Required fields:** I insisted on IDs, steps, severity and screenshots in the MD file itself. An earlier defects file had none of them.
@@ -305,6 +323,69 @@ EXPECTATION:
   - "0.001 stored as 0.00" was wrong, because 0.001 is correctly rejected. The real defect is 10.005 being stored as 10.01 (DEF-04).
   - "Stale dashboard cache" did not reproduce, so it was moved to "Checked and not a defect".
 - **Only the report is delivered:** the temporary script used to take the screenshots was deleted, so only `defects.md` and its screenshots are committed.
+- **Only Critical and High:** I asked for a short list a developer acts on first, so lower severities were removed.
+- **Reproduced by hand:** I asked for steps I could run myself, and reran the curl steps for DEF-08, DEF-09 and DEF-14 before accepting them.
+- **Why it matters:** I asked that every defect say why the correct behaviour is needed and why the actual behaviour is a defect.
+- **Every field filled:** each defect has ID, Type, Severity, Priority, Status, Environment, Area, How found, Reported by, Reported on, Evidence, steps, expected and actual result, and at least one screenshot.
+
+---
+
+## 8. Supporting work
+
+Exact prompts: P069 (this journal), P071–P077 (skills and agent), P110 (contract testing), P117–P119 (screenshots after each check) in [AI_PROMPT_LOG.md](AI_PROMPT_LOG.md).
+
+### What the AI produced
+- This journal, with the prompts rewritten in RACE.
+- Two project skills (`test-strategy`, `test-case-design`) and a Playwright test-writer agent under `.claude/`, so the same prompts can be reused on the next feature.
+- `CONTRACT_TESTING.md`: the plan for schema validation, provider checks and Pact.
+- A screenshot attached to the HTML report after each key check in the UI tests.
+
+### My review and changes
+- **Location:** I moved the `.claude` folder inside the project so the skills travel with the repo.
+- **Evidence:** I asked for a screenshot after each `expect`, not only on failure, so a passing report also shows what was checked.
+
+---
+
+## 9. Final review against the submission checklist
+
+Exact prompts: P124 and P125 in [AI_PROMPT_LOG.md](AI_PROMPT_LOG.md).
+
+### Prompt
+```
+ROLE: You are a strict reviewer of a QA take-home submission.
+
+ACTION: Check the repo against the 7-item submission checklist (AI journal,
+architecture, test strategy, test cases, Playwright UI tests, API tests, defect
+report). List what is missing or weak, then fix it.
+
+CONTEXT: [APP CONTEXT]
+Hard rules still apply: exactly 10 UI and 10 API tests; keep a test strict when it
+exposes a real bug and annotate it; no commits; no personal data in files.
+
+EXPECTATION:
+- A gap list per checklist item, with the evidence (file and line).
+- Fix every gap in the repo itself, then rerun both suites and report the result.
+- Do not add tests beyond 10 + 10: extend existing tests instead.
+```
+
+### What the AI produced
+- **Gaps found:** no schema validation; no missing-input API test; prompts in the journal were rewritten, not exact; defect tables lacked Type, Priority, Status and Environment; no committed video evidence; test-case IDs not linked to the automated tests; an XPath locator; fixed sleeps in the login retries and in a debug script; real passwords in `.env.example`.
+- **Fixes:**
+  - Ajv schema checks against `bff-api.yml` on every create, get and list.
+  - API-03 now covers each missing required field and an empty body.
+  - Exact prompt log in [AI_PROMPT_LOG.md](AI_PROMPT_LOG.md).
+  - Full defect fields.
+  - Videos in [evidence/](evidence/README.md).
+  - Each test is tagged with its case ID, and a traceability table was added to `TEST_CASES.md`.
+  - The XPath was replaced with roles (`term` / `definition`).
+  - Login retries use `toPass` with jittered intervals.
+  - The debug script was deleted.
+  - Placeholders in `.env.example`.
+
+### My review and changes
+- **10 + 10 kept:** missing-input and schema checks were added to existing tests, not as new ones.
+- **New failure kept red:** the schema check showed that `claimAmount: "five"` gets Spring's default error body, not `ProblemDetail`. API-02 stays strict and is annotated, like API-04.
+- **Video evidence needed a real fix:** the first evidence run failed 8 of 10 UI tests. The AI first suspected the BFF login problem (DEF-05). The real causes were two test-setup problems. With trace `on`, the installed Chrome never returned from the tests' own `page.screenshot()` calls. The signed-in browser contexts also recorded no video at all. Trace now stays `retain-on-failure`, and the fixtures record and attach video themselves. All 10 tests passed with video.
 
 ---
 
@@ -313,4 +394,5 @@ EXPECTATION:
 1. **Scope:** a precise **Expectation** with hard numbers, such as "exactly 10", stops the AI from producing far too much.
 2. **Context:** giving real **Context** (ports, roles, the CSRF mechanism, the field rules) turned generic tests into tests of this app.
 3. **Verification:** the AI's claims must be checked. Two of its suspected defects were wrong, and it first blamed the tests for what was really a missing browser.
-4. **Ownership:** the folder structure, the test limits, the defect format and the decision to keep a failing test were my calls. The AI made them consistent and fast to implement.
+4. **Exact prompts:** a cleaned-up prompt is good for reuse, but a reviewer also needs the prompts exactly as typed. Keep both from the start.
+5. **Ownership:** the folder structure, the test limits, the defect format and the decision to keep a failing test were my calls. The AI made them consistent and fast to implement.

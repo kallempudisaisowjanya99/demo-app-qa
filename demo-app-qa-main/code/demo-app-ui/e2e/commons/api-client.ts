@@ -3,6 +3,7 @@ import type { ApiSession } from './api-session';
 import { ApiRoute, HttpStatus, PATH_FROM_SUBMITTED, type ClaimStatus } from './constants';
 import type { ClaimResponse, ClaimSummaryResponse, CreateClaimRequest } from './api-types';
 import { buildClaim } from '../testdata/claim.data';
+import { expectArraySchema, expectSchema } from './api-schema';
 
 export async function bodyOf<T>(response: APIResponse): Promise<T> {
   return (await response.json()) as T;
@@ -20,7 +21,9 @@ export class ClaimsApi {
   async createOk(payload: CreateClaimRequest): Promise<ClaimResponse> {
     const response = await this.create(payload);
     expect(response.status(), 'claim set-up must succeed').toBe(HttpStatus.Created);
-    return bodyOf<ClaimResponse>(response);
+    const body = await bodyOf<ClaimResponse>(response);
+    expectSchema(body, 'ClaimResponse');
+    return body;
   }
 
   list(): Promise<APIResponse> {
@@ -30,13 +33,17 @@ export class ClaimsApi {
   async listOk(): Promise<ClaimSummaryResponse[]> {
     const response = await this.list();
     expect(response.status(), 'claim list must succeed').toBe(HttpStatus.Ok);
-    return bodyOf<ClaimSummaryResponse[]>(response);
+    const body = await bodyOf<ClaimSummaryResponse[]>(response);
+    expectArraySchema(body, 'ClaimSummaryResponse');
+    return body;
   }
 
   async getOk(claimId: string): Promise<ClaimResponse> {
     const response = await this.session.send('GET', ApiRoute.claimById(claimId));
     expect(response.status(), `claim ${claimId} must be readable`).toBe(HttpStatus.Ok);
-    return bodyOf<ClaimResponse>(response);
+    const body = await bodyOf<ClaimResponse>(response);
+    expectSchema(body, 'ClaimResponse');
+    return body;
   }
 }
 

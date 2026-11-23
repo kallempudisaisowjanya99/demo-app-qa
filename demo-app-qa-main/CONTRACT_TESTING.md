@@ -3,7 +3,7 @@
 Scope: the two API contracts in the Claims app and how they are protected against drift.
 Related: risk **R3** in [TEST_STRATEGY.md](TEST_STRATEGY.md) ("BFF ↔ Claims Service contract drift").
 
-> **Status: planned, not implemented.** Review feedback scored this area **0 / 5**: *"No Pact, OpenAPI or schema validation."* That is accurate. This document is the plan to close the gap: what will be tested, with which tool, in what order, and what "done" means.
+> **Status: L1 done (23 Nov 2026); L2 and L3 planned.** Review feedback scored this area **0 / 5**: *"No Pact, OpenAPI or schema validation."* Since then, layer L1 is in place: the Playwright API tests validate response bodies against `bff-api.yml` (see [L1](#l1--schema-validation-in-the-playwright-api-tests)). Pact (L3) and provider-side validation (L2) are still a plan. This document describes what will be tested, with which tool, in what order, and what "done" means.
 
 ---
 
@@ -43,12 +43,16 @@ L1 and L2 check "does the implementation match the spec". L3 checks "does the pr
 
 ### L1 — Schema validation in the Playwright API tests
 
-- Load `bff-api.yml` once and resolve `$ref`s (e.g. `@apidevtools/swagger-parser`).
-- Compile each operation's response schema with **Ajv** (`ajv-formats` for `uuid`, `date`, `date-time`).
-- Add an `expectToMatchSchema(response, operationId, status)` helper in `e2e/commons/` and call it in every API test (`API-01` … `API-10`), for success **and** error responses (`ProblemDetail` for 400/401/403/404).
-- Set `additionalProperties: false` during validation so new, undocumented fields are flagged too.
+**Done.** How it works today:
 
-Cheapest layer to add, and it turns the existing 10 API tests into contract checks for C2.
+- [`e2e/commons/api-schema.ts`](code/demo-app-ui/e2e/commons/api-schema.ts) loads `bff-api.yml` with `js-yaml`, registers its `components.schemas` in **Ajv** (with `ajv-formats` for `uuid`, `date` and `date-time`), and resolves the `$ref`s itself.
+- `expectSchema(body, 'ClaimResponse')` and `expectArraySchema(body, 'ClaimSummaryResponse')` fail the test and list every mismatch (missing field, wrong type, unknown status, bad uuid or date).
+- The API helpers call them on every successful create, get and list ([`api-client.ts`](code/demo-app-ui/e2e/commons/api-client.ts)), so every API test that reads a claim checks the contract. API-02 and API-03 check each 400 body against `ProblemDetail`.
+- Checked once by breaking it on purpose: a wrong uuid and an unknown status value were both reported.
+
+What it found: a value with the wrong JSON type (`claimAmount: "five"`) gets 400 with Spring's default body `{timestamp, status, error, path}`, not `ProblemDetail`. 401 and 403 answers have an empty body, although the spec documents `ProblemDetail` for them.
+
+Not done yet: `additionalProperties: false` (undocumented extra fields are not flagged), and selecting the schema by `operationId` and status instead of by schema name.
 
 ### L2 — Claims Service validates its own responses
 
@@ -127,7 +131,7 @@ A PR that changes `claims-api.yml` or a Claims controller cannot merge if it bre
 
 | Step | Work | Closes |
 |------|------|--------|
-| 1 | L1: Ajv helper + schema check in all 10 Playwright API tests | "No OpenAPI / schema validation" for C2 |
+| 1 | ✅ L1: Ajv helper + schema check in the Playwright API tests (done 23 Nov 2026) | "No OpenAPI / schema validation" for C2 |
 | 2 | Pact consumer tests for `getClaim`, `createClaim`, `updateClaimStatus` (highest-risk paths) + provider verification with states | "No Pact" |
 | 3 | Remaining 7 operations and their error interactions | Full C1 coverage |
 | 4 | L2: OpenAPI validation on Claims Service MockMvc tests | Provider-side spec conformance |

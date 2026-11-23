@@ -1,6 +1,7 @@
-import { request, type APIRequestContext, type APIResponse } from '@playwright/test';
+import { expect, request, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { ApiRoute, CSRF_COOKIE, CSRF_HEADER, HttpStatus } from './constants';
 import { env, type Credentials } from '../env';
+import { jitteredIntervals } from '../utils/retry.utils';
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH';
 
@@ -11,7 +12,9 @@ export interface SendOptions {
   readonly withCsrf?: boolean;
 }
 
-const LOGIN_ATTEMPTS = 6;
+/** Base waits between refused login attempts, used by `toPass` (jitter is added). */
+const LOGIN_RETRY_INTERVALS_MS = [300, 700, 1_500, 3_000];
+const LOGIN_TIMEOUT_MS = 30_000;
 
 /**
  * One conversation with the BFF, signed in or anonymous.
@@ -29,22 +32,25 @@ export class ApiSession {
   /**
    * Logs in through the real login endpoint.
    * The BFF sometimes answers 401 to valid credentials when several logins arrive
-   * at once, so a refused login is retried with a short random pause.
+   * at once (DEF-05), so a refused login is retried by Playwright's `toPass` with
+   * growing, jittered intervals; there is no fixed sleep.
    */
   static async loginAs(credentials: Credentials): Promise<ApiSession> {
-    let lastStatus = 0;
-    for (let attempt = 1; attempt <= LOGIN_ATTEMPTS; attempt++) {
+    let signedIn: ApiSession | undefined;
+    await expect(async () => {
       const session = await ApiSession.anonymous();
       const response = await session.send('POST', ApiRoute.login, { data: credentials, withCsrf: false });
-      lastStatus = response.status();
-      if (lastStatus === HttpStatus.Ok) {
-        await session.fetchCsrfToken();
-        return session;
+      if (response.status() !== HttpStatus.Ok) {
+        await session.dispose();
       }
-      await session.dispose();
-      await new Promise((resolve) => setTimeout(resolve, attempt * 300 + Math.random() * 700));
+      expect(response.status(), `login as ${credentials.email}`).toBe(HttpStatus.Ok);
+      await session.fetchCsrfToken();
+      signedIn = session;
+    }).toPass({ intervals: jitteredIntervals(LOGIN_RETRY_INTERVALS_MS), timeout: LOGIN_TIMEOUT_MS });
+    if (signedIn === undefined) {
+      throw new Error(`Login failed for ${credentials.email}`);
     }
-    throw new Error(`Login failed for ${credentials.email} after ${LOGIN_ATTEMPTS} attempts: HTTP ${lastStatus}`);
+    return signedIn;
   }
 
   async send(method: HttpMethod, path: string, options: SendOptions = {}): Promise<APIResponse> {
