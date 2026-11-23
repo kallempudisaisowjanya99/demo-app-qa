@@ -6,6 +6,7 @@ import { attachScreenshot } from '../../utils/screenshot.utils';
 import { textOfLength } from '../../utils/string.utils';
 import { env } from '../../env';
 import { expect, test } from '../../fixtures/fixtures';
+import { AdminClaimsPage } from '../../pageobject/pages/admin-claims.page';
 import { ClaimsPage } from '../../pageobject/pages/claims.page';
 import { UI_CLAIM_FORM, uniqueDescription } from '../../testdata/claim.data';
 import { WRONG_PASSWORD } from '../../testdata/login.data';
@@ -23,6 +24,8 @@ test.describe('Login', () => {
     await loginPage.signIn({ email: env.claimant.email, password: WRONG_PASSWORD });
 
     await loginPage.expectRefused();
+    await expect(loginPage.page, 'a refused user must not reach My Claims').not.toHaveURL(new RegExp(UiRoute.claims));
+    await expect(new ClaimsPage(loginPage.page).el.heading).not.toBeVisible();
     await attachScreenshot(loginPage.page, 'Login refused');
   });
 
@@ -35,6 +38,7 @@ test.describe('Login', () => {
     await claims.logout();
 
     await expect(loginPage.el.heading).toBeVisible();
+    await expect(claims.el.heading, 'My Claims must be gone after logout').not.toBeVisible();
     await attachScreenshot(page, 'Login page after logout');
   });
 
@@ -42,6 +46,7 @@ test.describe('Login', () => {
     await page.goto(UiRoute.claims);
 
     await expect(page).toHaveURL(/\/login\?redirect=%2Fclaims$/);
+    await expect(new ClaimsPage(page).el.heading, 'My Claims must not show without sign-in').not.toBeVisible();
     await attachScreenshot(page, 'Redirected to login');
   });
 });
@@ -61,6 +66,7 @@ test.describe('Submit a claim', () => {
 
     await claimant.claims.expectClaimListed(claimId);
     await claimant.claims.expectStatus(claimId, ClaimStatus.Submitted);
+    await expect(claimant.page, 'the wizard must close after submitting').not.toHaveURL(new RegExp(UiRoute.newClaim));
     await attachScreenshot(claimant.page, 'Claim listed as Submitted');
     await claimant.claims.openDetails(claimId);
     await claimant.claims.expectDetails({
@@ -83,6 +89,8 @@ test.describe('Submit a claim', () => {
     });
 
     await claimant.newClaim.expectFieldRejected(claimant.newClaim.el.incidentLocationField);
+    await expect(claimant.newClaim.el.nextButton, 'Next must stay disabled').not.toBeEnabled();
+    await expect(claimant.newClaim.el.descriptionField, 'step 2 must not open').not.toBeVisible();
     await attachScreenshot(claimant.page, 'Location rejected');
   });
 
@@ -98,6 +106,8 @@ test.describe('Submit a claim', () => {
     await claimant.newClaim.el.descriptionField.fill(textOfLength(ClaimLimits.description.min - 1));
 
     await claimant.newClaim.expectFieldRejected(claimant.newClaim.el.descriptionField);
+    await expect(claimant.newClaim.el.nextButton, 'Next must stay disabled').not.toBeEnabled();
+    await expect(claimant.newClaim.el.reviewHeading, 'the review step must not open').not.toBeVisible();
     await attachScreenshot(claimant.page, 'Description rejected');
   });
 });
@@ -114,7 +124,7 @@ test.describe('Who sees what', () => {
     await claimant.claims.open();
 
     await claimant.claims.expectClaimListed(mine.claimId);
-    await claimant.claims.expectClaimNotListed(someoneElses.claimId);
+    await expect(claimant.claims.el.row(someoneElses.claimId), 'someone else’s claim must not be listed').not.toBeVisible();
     await attachScreenshot(claimant.page, 'Only own claim listed');
   });
 
@@ -122,6 +132,8 @@ test.describe('Who sees what', () => {
     await claimant.page.goto(UiRoute.adminClaims);
 
     await claimant.claims.expectLoaded();
+    await expect(claimant.page, 'a claimant must not stay on the admin page').not.toHaveURL(new RegExp(UiRoute.adminClaims));
+    await expect(new AdminClaimsPage(claimant.page).el.heading, 'the admin page must not show').not.toBeVisible();
     await attachScreenshot(claimant.page, 'Sent back to My Claims');
   });
 });
@@ -132,6 +144,8 @@ test.describe('Admin status changes', () => {
     claimant,
     claimantApi,
   }) => {
+    // Two signed-in browsers, each loading the whole unpaginated claim list (thousands of rows).
+    test.slow();
     const claim = await seedClaim(claimantApi, 'UI-09');
     await admin.adminClaims.open(claim.claimId);
 
@@ -140,6 +154,7 @@ test.describe('Admin status changes', () => {
 
     await claimant.claims.open();
     await claimant.claims.expectStatus(claim.claimId, ClaimStatus.UnderReview);
+    await expect(claimant.claims.el.statusBadge(claim.claimId), 'the old status must be gone').not.toHaveText(STATUS_LABEL.SUBMITTED);
     await attachScreenshot(claimant.page, 'Claimant sees Under Review');
   });
 
@@ -153,6 +168,7 @@ test.describe('Admin status changes', () => {
     const offered = await admin.adminClaims.offeredStatuses(claim.claimId);
 
     expect(offered.sort()).toEqual([STATUS_LABEL.REJECTED, STATUS_LABEL.UNDER_REVIEW].sort());
+    expect(offered, 'Approved must not be offered straight from Submitted').not.toContain(STATUS_LABEL.APPROVED);
     await attachScreenshot(admin.page, 'Status options offered');
   });
 });

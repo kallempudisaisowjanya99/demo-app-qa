@@ -2,10 +2,11 @@ import { defineConfig, devices } from '@playwright/test';
 import { env } from './e2e/env';
 
 /**
- * E2E_ARTIFACTS=all keeps the screenshot and video of every test (evidence runs).
+ * E2E_ARTIFACTS=all keeps trace, screenshot and video for every test (evidence runs).
  * Default keeps them only for failures, which keeps CI artifacts small.
- * The trace is kept only for failures in both modes: with trace 'on' and the installed
- * Chrome, the tests' own page.screenshot() calls never return and the test times out.
+ * In evidence runs the fixtures record the trace of each browser themselves (see
+ * e2e/fixtures/fixtures.ts), so Playwright's own trace stays off there: on Node 26,
+ * Playwright 1.58 hangs while merging the trace pieces of a passing test.
  */
 const keepEverything = process.env['E2E_ARTIFACTS'] === 'all';
 // Locally the installed Google Chrome is used (no browser download needed); CI uses Playwright's Chromium.
@@ -29,7 +30,7 @@ export default defineConfig({
   ],
   use: {
     baseURL: env.uiBaseUrl,
-    trace: 'retain-on-failure',
+    trace: keepEverything ? 'off' : 'retain-on-failure',
     screenshot: keepEverything ? 'on' : 'only-on-failure',
     video: keepEverything ? 'on' : 'retain-on-failure',
     actionTimeout: 10_000,
@@ -40,7 +41,9 @@ export default defineConfig({
       name: 'api',
       testDir: './e2e/tests/api',
       testMatch: '**/*.api.spec.ts',
-      use: { baseURL: env.apiBaseUrl },
+      // Evidence runs keep the trace of failed API tests only: trace 'on' hits the same
+      // Playwright 1.58 / Node 26 merge hang, and the API tests open no browser to trace.
+      use: { baseURL: env.apiBaseUrl, trace: 'retain-on-failure' },
     },
     {
       name: 'ui-chromium',

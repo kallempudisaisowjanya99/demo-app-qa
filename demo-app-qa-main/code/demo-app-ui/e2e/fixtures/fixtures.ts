@@ -4,7 +4,7 @@ import {
   type Browser,
   type BrowserContext,
   type Page,
-  type PlaywrightTestOptions,
+  type PlaywrightWorkerOptions,
   type TestInfo,
 } from '@playwright/test';
 import { AdminApi, ClaimsApi } from '../commons/api-client';
@@ -76,6 +76,13 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
   otherUserApi: async ({ adminSession }, use) => use(new ClaimsApi(adminSession)),
   adminApi: async ({ adminSession }, use) => use(new AdminApi(adminSession)),
 
+  // Evidence runs: the default page records its own trace too (see startEvidenceTrace).
+  page: async ({ page }, use, testInfo) => {
+    await startEvidenceTrace(page.context());
+    await use(page);
+    await stopEvidenceTrace(page.context(), testInfo, 'browser');
+  },
+
   loginPage: async ({ page }, use) => use(new LoginPage(page)),
 
   claimant: async ({ browser }, use, testInfo) => {
@@ -95,6 +102,28 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
   },
 });
 
+/**
+ * E2E_ARTIFACTS=all: one trace per browser context, recorded here and attached as "trace".
+ * Playwright's own trace 'on' is not used: Playwright 1.58 on Node 26 hangs while merging
+ * the trace pieces of a passing test, and 1.65 cannot drive these pages reliably.
+ */
+const EVIDENCE_RUN = process.env['E2E_ARTIFACTS'] === 'all';
+
+async function startEvidenceTrace(context: BrowserContext): Promise<void> {
+  if (EVIDENCE_RUN) {
+    await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+  }
+}
+
+async function stopEvidenceTrace(context: BrowserContext, testInfo: TestInfo, name: string): Promise<void> {
+  if (!EVIDENCE_RUN) {
+    return;
+  }
+  const tracePath = testInfo.outputPath(`trace-${name}.zip`);
+  await context.tracing.stop({ path: tracePath });
+  await testInfo.attach('trace', { path: tracePath, contentType: 'application/zip' });
+}
+
 async function signedInPage(page: Page, credentials: Credentials): Promise<Page> {
   await new LoginPage(page).signInExpectingSuccess(credentials);
   return page;
@@ -102,7 +131,7 @@ async function signedInPage(page: Page, credentials: Credentials): Promise<Page>
 
 /** The project's `video` mode; the config can give it as a string or as `{ mode }`. */
 function videoMode(testInfo: TestInfo): string {
-  const video = testInfo.project.use.video as PlaywrightTestOptions['video'] | undefined;
+  const video = testInfo.project.use.video as PlaywrightWorkerOptions['video'] | undefined;
   return typeof video === 'object' ? video.mode : (video ?? 'off');
 }
 
@@ -111,15 +140,18 @@ function videoMode(testInfo: TestInfo): string {
  * opened here record it themselves, following the `video` setting in the config.
  */
 async function openContext(browser: Browser, testInfo: TestInfo): Promise<BrowserContext> {
-  if (videoMode(testInfo) === 'off') {
-    return browser.newContext();
-  }
-  return browser.newContext({ recordVideo: { dir: testInfo.outputPath('videos') } });
+  const context =
+    videoMode(testInfo) === 'off'
+      ? await browser.newContext()
+      : await browser.newContext({ recordVideo: { dir: testInfo.outputPath('videos') } });
+  await startEvidenceTrace(context);
+  return context;
 }
 
-/** Closes the context, then attaches its video to the report, or deletes it when it is not needed. */
+/** Saves the evidence trace, closes the context, then attaches its video to the report, or deletes it when it is not needed. */
 async function closeContext(context: BrowserContext, page: Page, testInfo: TestInfo, persona: string): Promise<void> {
   const video = page.video();
+  await stopEvidenceTrace(context, testInfo, persona);
   await context.close();
   if (video === null) {
     return;

@@ -30,7 +30,7 @@ test.describe('Claims API: create', () => {
   test(
     'API-01: a claimant creates a valid claim; it starts SUBMITTED, matches the schema and reads back unchanged',
     { tag: '@API-CLM-01' },
-    async ({ claimantApi }) => {
+    async ({ claimantApi, otherUserApi }) => {
       const payload = buildClaim('API-01');
 
       const response = await claimantApi.create(payload);
@@ -43,6 +43,8 @@ test.describe('Claims API: create', () => {
 
       const readBack = await claimantApi.getOk(created.claimId);
       expect(readBack).toMatchObject({ ...payload, status: ClaimStatus.Submitted, claimId: created.claimId });
+      const otherUsersIds = (await otherUserApi.listOk()).map((claim) => claim.claimId);
+      expect(otherUsersIds, 'the new claim must not be visible to another user').not.toContain(created.claimId);
     },
   );
 

@@ -3,6 +3,12 @@ import { STATUS_LABEL, UiRoute, type ClaimStatus } from '../../commons/constants
 import { ClaimsObjects, type ClaimDetailField } from '../objects/claims.objects';
 import { BasePage } from './base.page';
 
+/**
+ * My Claims is not paginated, and the test accounts own thousands of claims after many runs,
+ * so the first render can take longer than the default 10 s (more with tracing on).
+ */
+const CLAIM_LIST_LOAD_TIMEOUT_MS = 30_000;
+
 /** The claimant's "My Claims" page. */
 export class ClaimsPage extends BasePage {
   readonly el: ClaimsObjects;
@@ -20,15 +26,13 @@ export class ClaimsPage extends BasePage {
   async expectLoaded(): Promise<void> {
     await expect(this.page).toHaveURL(new RegExp(`${UiRoute.claims}$`));
     await expect(this.el.heading).toBeVisible();
-    await expect(this.el.firstDataRow().or(this.el.emptyStateHeading).first()).toBeVisible();
+    await expect(this.el.firstDataRow().or(this.el.emptyStateHeading).first()).toBeVisible({
+      timeout: CLAIM_LIST_LOAD_TIMEOUT_MS,
+    });
   }
 
   async expectClaimListed(claimId: string): Promise<void> {
     await expect(this.el.row(claimId)).toBeVisible();
-  }
-
-  async expectClaimNotListed(claimId: string): Promise<void> {
-    await expect(this.el.row(claimId)).toHaveCount(0);
   }
 
   async expectStatus(claimId: string, status: ClaimStatus): Promise<void> {
